@@ -29,7 +29,25 @@ def softmax_loss_naive(W, X, y, reg):
   # here, it is easy to run into numeric instability. Don't forget the        #
   # regularization!                                                           #
   #############################################################################
-  pass
+  N = X.shape[0]
+  D = X.shape[1]
+  C = W.shape[1]
+  for i in range(N):
+    # Calculate loss
+    scores = X[i].dot(W)  # (1, C)
+    scores -= np.max(scores)
+    correct_class_score = scores[y[i]]
+    cur_loss = -correct_class_score + np.log(np.sum(np.exp(scores)))
+    loss += cur_loss
+    # Calculate dW
+    cur_dW = np.zeros_like(W)
+    cur_dW[:, y[i]] = -X[i]
+    cur_dW += np.dot(X[i].reshape(-1, 1), np.exp(scores).reshape(1, -1)) / np.sum(np.exp(scores)) # (D, C)
+    dW += cur_dW
+
+  loss = (loss / N) + 0.5 * reg * np.sum(W * W)
+  dW = (dW / N) + reg * W
+
   #############################################################################
   #                          END OF YOUR CODE                                 #
   #############################################################################
@@ -53,7 +71,29 @@ def softmax_loss_vectorized(W, X, y, reg):
   # here, it is easy to run into numeric instability. Don't forget the        #
   # regularization!                                                           #
   #############################################################################
-  pass
+  N = X.shape[0]
+  D = X.shape[1]
+  C = W.shape[1]
+
+  scores = X.dot(W) # (N, C)
+  scores -= np.max(scores, axis = 1).reshape(-1, 1)
+  correct_class_scores = scores[range(N), y]  # (N, 1)
+  scores_exp = np.exp(scores)
+  scores_expsum = np.sum(np.exp(scores), axis = 1)
+
+  # loss value.
+  loss = -correct_class_scores + np.log(scores_expsum)
+  loss = np.sum(loss) / N + 0.5 * reg * np.sum(W * W)
+
+  yy = np.zeros((N, C))
+  yy[range(N), y] = 1
+  dW_term1 = np.dot(X.T, yy)
+
+  ss = scores_exp / scores_expsum.reshape(N, -1)
+  dW_term2 = np.dot(X.T, ss)
+
+  dW = -dW_term1 + dW_term2
+  dW = (dW / N) + reg * W
   #############################################################################
   #                          END OF YOUR CODE                                 #
   #############################################################################
