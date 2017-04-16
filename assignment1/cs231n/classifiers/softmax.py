@@ -30,7 +30,27 @@ def softmax_loss_naive(W, X, y, reg):
   # here, it is easy to run into numeric instability. Don't forget the        #
   # regularization!                                                           #
   #############################################################################
-  pass
+  
+  C = W.shape[1]
+  N = X.shape[0]
+  
+  for i in xrange(N):
+    scores = np.dot(X[i], W)
+    scores -= np.max(scores)
+    eScores = np.exp(scores)
+    loss += (-scores[y[i]] + np.log(np.sum(eScores)))
+    
+    if (i == 0 or i == 1):
+        print(loss)
+    
+    p = eScores / np.sum(eScores)
+    dW[:,y[i]] += -X.T[:,i]
+    dW += np.dot(X[i].reshape(-1, 1), p.reshape(1, -1))
+    
+  loss /= N
+  loss += reg * np.sum(W * W)
+  dW /= N
+  dW += 2 * reg * W
   #############################################################################
   #                          END OF YOUR CODE                                 #
   #############################################################################
@@ -54,7 +74,19 @@ def softmax_loss_vectorized(W, X, y, reg):
   # here, it is easy to run into numeric instability. Don't forget the        #
   # regularization!                                                           #
   #############################################################################
-  pass
+  C = W.shape[1]
+  N = X.shape[0]
+  
+  scores = np.dot(X, W)
+  scores -= np.max(scores, axis = 1).reshape(-1, 1)
+  eScores = np.exp(scores)
+  lineloss = (-scores[range(N),y] + np.log(np.sum(eScores, axis = 1)))
+  loss = np.sum(lineloss) / N + reg * np.sum(W * W)
+    
+  st1 = eScores / np.sum(eScores, axis = 1).reshape(-1, 1)
+  st1[range(N),y] += -1
+  dW = np.dot(X.T, st1) / N + 2 * reg * W
+  
   #############################################################################
   #                          END OF YOUR CODE                                 #
   #############################################################################
