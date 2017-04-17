@@ -39,10 +39,7 @@ def softmax_loss_naive(W, X, y, reg):
     scores -= np.max(scores)
     eScores = np.exp(scores)
     loss += (-scores[y[i]] + np.log(np.sum(eScores)))
-    
-    if (i == 0 or i == 1):
-        print(loss)
-    
+      
     p = eScores / np.sum(eScores)
     dW[:,y[i]] += -X.T[:,i]
     dW += np.dot(X[i].reshape(-1, 1), p.reshape(1, -1))
