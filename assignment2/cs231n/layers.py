@@ -183,7 +183,19 @@ def batchnorm_forward(x, gamma, beta, bn_param):
         # variance, storing your result in the running_mean and running_var   #
         # variables.                                                          #
         #######################################################################
-        pass
+        
+        sample_mean = np.sum(x, axis = 0) / N
+        sample_mean2 = np.sum(x**2, axis = 0) / N
+        sample_var = sample_mean2 - sample_mean**2
+        
+        sample_norm = (x - sample_mean) / np.sqrt(sample_var + eps)
+        out = gamma * sample_norm + beta
+        
+        running_mean = momentum * running_mean + (1 - momentum) * sample_mean
+        running_var = momentum * running_var + (1 - momentum) * sample_var
+        
+        cache = (x, gamma, beta, eps)
+        
         #######################################################################
         #                           END OF YOUR CODE                          #
         #######################################################################
@@ -194,7 +206,10 @@ def batchnorm_forward(x, gamma, beta, bn_param):
         # then scale and shift the normalized data using gamma and beta.      #
         # Store the result in the out variable.                               #
         #######################################################################
-        pass
+        
+        sample_norm = (x - running_mean) / np.sqrt(running_var + eps)
+        out = gamma * sample_norm + beta
+        
         #######################################################################
         #                          END OF YOUR CODE                           #
         #######################################################################
@@ -230,7 +245,27 @@ def batchnorm_backward(dout, cache):
     # TODO: Implement the backward pass for batch normalization. Store the    #
     # results in the dx, dgamma, and dbeta variables.                         #
     ###########################################################################
-    pass
+    
+    N, D = dout.shape
+    (x, gamma, beta, eps) = cache
+    
+    sample_mean = np.sum(x, axis = 0) / N
+    sample_mean2 = np.sum(x**2, axis = 0) / N
+    sample_var = sample_mean2 - sample_mean**2
+    
+    sample_n1 = x - sample_mean
+    sample_n2 = 1 / np.sqrt(sample_var + eps)
+    sample_n = sample_n1 * sample_n2
+    
+    dbeta = np.sum(dout, axis = 0)
+    dgamma = np.sum(dout * sample_n, axis = 0)
+    
+    # sample_norm_den_dd = (-0.5) * np.power(sample_var + eps, -1.5)
+    sample_n1d = 1 - 1 / N
+    sample_n2d = (-0.5) * np.power(sample_var + eps, -1.5) * (2 * x - 2 * sample_mean) / N
+    
+    dx = (dout * gamma) * (sample_n1 * sample_n2d + sample_n1d * sample_n2)
+    
     ###########################################################################
     #                             END OF YOUR CODE                            #
     ###########################################################################
