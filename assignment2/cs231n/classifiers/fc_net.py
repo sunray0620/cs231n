@@ -208,6 +208,11 @@ class FullyConnectedNet(object):
             self.params[curwname] = weight_scale * np.random.randn(curshape[0], curshape[1])
             self.params[curbname] = np.zeros(curshape[1])
             cuript = curshape[1]
+            if self.use_batchnorm and i < self.num_layers - 1:
+                curgammaname = "gamma{0}".format(i + 1)
+                curbetaname = "beta{0}".format(i + 1)
+                self.params[curgammaname] = np.ones(curshape[1])
+                self.params[curbetaname] = np.zeros(curshape[1])
         
         ############################################################################
         #                             END OF YOUR CODE                             #
@@ -272,22 +277,29 @@ class FullyConnectedNet(object):
         
         caches = {}
         caches["affine"] = []
+        caches["batchnorm"] = []
         caches["relu"] = []
         
         curinput = Xflt
         for i in range(0, self.num_layers - 1):
             curwname = "W{0}".format(i + 1)
             curbname = "b{0}".format(i + 1)
+            curgammaname = "gamma{0}".format(i + 1)
+            curbetaname = "beta{0}".format(i + 1)
             
             # Step 1: Affine
             o1, c1 = affine_forward(curinput, self.params[curwname], self.params[curbname])
             caches["affine"].append(c1)
             
-            # Step 2: Normalization.
-            # o2, c2 = batch_normalization(o1)
+            # Step 2: Batch Normalization.
+            if self.use_batchnorm:
+                o2, c2 = batchnorm_forward(o1, self.params[curgammaname], self.params[curbetaname], self.bn_params[i])
+                caches["batchnorm"].append(c2)
+            else:
+                o2 = o1
             
             # Step 3: Relu
-            o3, c3 = relu_forward(o1)
+            o3, c3 = relu_forward(o2)
             caches["relu"].append(c3)
             
             # Step 4: Dropout
@@ -330,6 +342,8 @@ class FullyConnectedNet(object):
         for i in range(self.num_layers - 2, -1, -1):
             curwname = "W{0}".format(i + 1)
             curbname = "b{0}".format(i + 1)
+            curgammaname = "gamma{0}".format(i + 1)
+            curbetaname = "beta{0}".format(i + 1)
             
             # Step 1: DD Dropout
             # o4, c4 = dropout()
@@ -337,11 +351,14 @@ class FullyConnectedNet(object):
             # Step 2: DD Relu
             do3 = relu_backward(curdipt, caches["relu"][i])
             
-            # Step 3: Normalization.
-            # o2, c2 = batch_normalization(o1)
+            # Step 3: Batch Normalization.
+            if self.use_batchnorm:
+                do2, grads[curgammaname], grads[curbetaname] = batchnorm_backward(do3, caches["batchnorm"][i])
+            else:
+                do2 = do3
             
             # Step 4: Affine
-            do1, grads[curwname], grads[curbname] = affine_backward(do3, caches["affine"][i])
+            do1, grads[curwname], grads[curbname] = affine_backward(do2, caches["affine"][i])
             
             curdipt = do1
         
