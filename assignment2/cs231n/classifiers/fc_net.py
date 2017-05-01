@@ -279,6 +279,7 @@ class FullyConnectedNet(object):
         caches["affine"] = []
         caches["batchnorm"] = []
         caches["relu"] = []
+        caches["dropout"] = []
         
         curinput = Xflt
         for i in range(0, self.num_layers - 1):
@@ -303,9 +304,13 @@ class FullyConnectedNet(object):
             caches["relu"].append(c3)
             
             # Step 4: Dropout
-            # o4, c4 = dropout()
+            if self.use_dropout:
+                o4, c4 = dropout_forward(o3, self.dropout_param)
+                caches["dropout"].append(c4)
+            else:
+                o4 = o3
             
-            curinput = o3
+            curinput = o4
         
         lastwname = "W{0}".format(self.num_layers)
         lastbname = "b{0}".format(self.num_layers)
@@ -346,10 +351,13 @@ class FullyConnectedNet(object):
             curbetaname = "beta{0}".format(i + 1)
             
             # Step 1: DD Dropout
-            # o4, c4 = dropout()
+            if self.use_dropout:
+                do4 = dropout_backward(curdipt, caches["dropout"][i])
+            else:
+                do4 = curdipt
             
             # Step 2: DD Relu
-            do3 = relu_backward(curdipt, caches["relu"][i])
+            do3 = relu_backward(do4, caches["relu"][i])
             
             # Step 3: Batch Normalization.
             if self.use_batchnorm:
