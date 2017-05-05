@@ -246,25 +246,25 @@ def batchnorm_backward(dout, cache):
     # results in the dx, dgamma, and dbeta variables.                         #
     ###########################################################################
     
-    gamma, x, u_b, sigma_squared_b, eps, x_hat = cache
+    gamma, x, sample_mean, sample_var, eps, sample_norm = cache
     N = x.shape[0]
 
-    dx_1 = gamma * dout
-    dx_2_b = np.sum((x - u_b) * dx_1, axis=0)
-    dx_2_a = ((sigma_squared_b + eps) ** -0.5) * dx_1
-    dx_3_b = (-0.5) * ((sigma_squared_b + eps) ** -1.5) * dx_2_b
-    dx_4_b = dx_3_b * 1
-    dx_5_b = np.ones_like(x) / N * dx_4_b
-    dx_6_b = 2 * (x - u_b) * dx_5_b
-    dx_7_a = dx_6_b * 1 + dx_2_a * 1
-    dx_7_b = dx_6_b * 1 + dx_2_a * 1
-    dx_8_b = -1 * np.sum(dx_7_b, axis=0)
-    dx_9_b = np.ones_like(x) / N * dx_8_b
-    dx_10 = dx_9_b + dx_7_a
+    dx1 = gamma * dout
+    dx2b = np.sum((x - sample_mean) * dx1, axis=0)
+    dx2a = ((sample_var + eps) ** -0.5) * dx1
+    dx3b = (-0.5) * ((sample_var + eps) ** -1.5) * dx2b
+    dx4b = dx3b * 1
+    dx5b = np.ones_like(x) / N * dx4b
+    dx6b = 2 * (x - sample_mean) * dx5b
+    dx7a = dx6b * 1 + dx2a * 1
+    dx7b = dx6b * 1 + dx2a * 1
+    dx8b = -1 * np.sum(dx7b, axis=0)
+    dx9b = np.ones_like(x) / N * dx8b
+    dx10 = dx9b + dx7a
 
-    dgamma = np.sum(x_hat * dout, axis=0)
+    dgamma = np.sum(sample_norm * dout, axis=0)
     dbeta = np.sum(dout, axis=0)
-    dx = dx_10
+    dx = dx10
     
     ###########################################################################
     #                             END OF YOUR CODE                            #
