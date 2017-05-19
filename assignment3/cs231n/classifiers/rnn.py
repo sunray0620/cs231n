@@ -141,13 +141,17 @@ class CaptioningRNN(object):
         N, D = W_proj.shape
         
         # Step 1
-        h0 = np.dot(features, W_proj) + b_proj
+        # h0 = np.dot(features, W_proj) + b_proj
+        h0, cache1 = affine_forward(features, W_proj, b_proj)
         
         # Step 2
         x, cache2 = word_embedding_forward(captions_in, W_embed)
         
         # Step 3
-        h, cache3 = rnn_forward(x, h0, Wx, Wh, b)
+        if self.cell_type == 'rnn':
+            h, cache3 = rnn_forward(x, h0, Wx, Wh, b)
+        elif self.cell_type == 'lstm':
+            h, cache3 = lstm_forward(x, h0, Wx, Wh, b)
         
         # Step 4
         wordscores, cache4 = temporal_affine_forward(h, W_vocab, b_vocab)
@@ -159,14 +163,18 @@ class CaptioningRNN(object):
         dback, grads['W_vocab'], grads['b_vocab'] = temporal_affine_backward(dback, cache4)
         
         # Flow Back Step 3
-        dx, dh0, grads['Wx'], grads['Wh'], grads['b'] = rnn_backward(dback, cache3)
+        if self.cell_type == 'rnn':
+            dx, dh0, grads['Wx'], grads['Wh'], grads['b'] = rnn_backward(dback, cache3)
+        elif self.cell_type == 'lstm':
+            dx, dh0, grads['Wx'], grads['Wh'], grads['b'] = lstm_backward(dback, cache3)
         
         # Flow Back Step 2
         grads['W_embed'] = word_embedding_backward(dx, cache2)
         
         # Flow Back Step 1
-        grads['W_proj'] = np.dot(features.T, dh0)
-        grads['b_proj'] = np.sum(dh0, axis = 0)
+        _, grads['W_proj'], grads['b_proj'] = affine_backward(dh0, cache1)
+        # grads['W_proj'] = np.dot(features.T, dh0)
+        # grads['b_proj'] = np.sum(dh0, axis = 0)
         
         ############################################################################
         #                             END OF YOUR CODE                             #
@@ -235,6 +243,7 @@ class CaptioningRNN(object):
         # Calculate h0
         h0, _ = affine_forward(features, W_proj, b_proj)
         prev_h = h0
+        prev_c = np.zeros(h0.shape)
         
         prev_word_idx = [self._start] * N
         captions[:, 0] = self._start
@@ -243,7 +252,11 @@ class CaptioningRNN(object):
             # Step 1
             prev_word_embed  = W_embed[prev_word_idx]
             # Step 2
-            h, _ = rnn_step_forward(prev_word_embed, prev_h, Wx, Wh, b)
+            if self.cell_type == 'rnn':
+                h, _ = rnn_step_forward(prev_word_embed, prev_h, Wx, Wh, b)
+            elif self.cell_type == 'lstm':
+                h, c, _ = lstm_step_forward(prev_word_embed, prev_h, prev_c, Wx, Wh, b)
+                prev_c = c
             # Step 3
             wordscores, _ = affine_forward(h, W_vocab, b_vocab)
             # Step 4
