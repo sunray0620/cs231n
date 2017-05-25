@@ -3,7 +3,7 @@ import numpy as np
 import os
 
 
-def load_tiny_imagenet(path, dtype=np.float32, subtract_mean=True):
+def load_tiny_imagenet(path, dtype=np.float32, subtract_mean=True, mode='dev'):
     """
     Load TinyImageNet. Each of TinyImageNet-100-A, TinyImageNet-100-B, and
     TinyImageNet-200 have the same directory structure, so this can be used
@@ -49,6 +49,8 @@ def load_tiny_imagenet(path, dtype=np.float32, subtract_mean=True):
         boxes_file = os.path.join(path, 'train', wnid, '%s_boxes.txt' % wnid)
         with open(boxes_file, 'r') as f:
             filenames = [x.split('\t')[0] for x in f]
+            if mode == 'dev':
+                filenames = filenames[0:100]
         num_images = len(filenames)
 
         X_train_block = np.zeros((num_images, 3, 64, 64), dtype=dtype)
@@ -75,6 +77,8 @@ def load_tiny_imagenet(path, dtype=np.float32, subtract_mean=True):
             img_file, wnid = line.split('\t')[:2]
             img_files.append(img_file)
             val_wnids.append(wnid)
+            if mode == 'dev' and len(img_files) >= 10:
+                break
         num_val = len(img_files)
         y_val = np.array([wnid_to_label[wnid] for wnid in val_wnids])
         X_val = np.zeros((num_val, 3, 64, 64), dtype=dtype)
@@ -89,6 +93,8 @@ def load_tiny_imagenet(path, dtype=np.float32, subtract_mean=True):
     # Students won't have test labels, so we need to iterate over files in the
     # images directory.
     img_files = os.listdir(os.path.join(path, 'test', 'images'))
+    if mode == 'dev':
+        img_files = img_files[0:10]
     X_test = np.zeros((len(img_files), 3, 64, 64), dtype=dtype)
     for i, img_file in enumerate(img_files):
         img_file = os.path.join(path, 'test', 'images', img_file)
