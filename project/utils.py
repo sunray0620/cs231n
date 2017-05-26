@@ -120,7 +120,12 @@ def load_tiny_imagenet(path, dtype=np.float32, subtract_mean=True, mode='dev'):
         X_train -= mean_image[None]
         X_val -= mean_image[None]
         X_test -= mean_image[None]
-
+    
+    print(X_train.shape)
+    X_train = X_train.transpose((0, 2, 3, 1))
+    X_val = X_val.transpose((0, 2, 3, 1))
+    X_test = X_test.transpose((0, 2, 3, 1))
+    
     return {
       'X_train': X_train,
       'y_train': y_train,

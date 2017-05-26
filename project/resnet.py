@@ -1,53 +1,27 @@
+import tensorflow as tf
 import numpy as np
-from hyper_parameters import *
 
 
 BN_EPSILON = 0.001
+Weight_Decay = 0.0002
+Run_Mode = "DEV2"
+Batch_Size = 256
 
-def activation_summary(x):
-    '''
-    :param x: A Tensor
-    :return: Add histogram summary and scalar summary of the sparsity of the tensor
-    '''
-    tensor_name = x.op.name
-    tf.summary.histogram(tensor_name + '/activations', x)
-    tf.summary.scalar(tensor_name + '/sparsity', tf.nn.zero_fraction(x))
+'''
+####################################
+Single Layer
+####################################
+'''
 
-
-def create_variables(name, shape, initializer=tf.contrib.layers.xavier_initializer(), is_fc_layer=False):
-    '''
-    :param name: A string. The name of the new variable
-    :param shape: A list of dimensions
-    :param initializer: User Xavier as default.
-    :param is_fc_layer: Want to create fc layer variable? May use different weight_decay for fc
-    layers.
-    :return: The created variable
-    '''
+def validate_tensor_dim(tensor, tensors_dim):
+    if Run_Mode != "DEV2":
+        return
+    actual_dim = tensor.get_shape().as_list()
+    print(actual_dim)
+    for i in range(4):
+        if actual_dim[i] != tensors_dim[i]:
+            raise ValueError('Dimension does not match E[%d] - A[%d]' % (tensors_dim[i], actual_dim[i]))
     
-    ## TODO: to allow different weight decay to fully connected layer and conv layer
-    if is_fc_layer is True:
-        regularizer = tf.contrib.layers.l2_regularizer(scale=FLAGS.weight_decay)
-    else:
-        regularizer = tf.contrib.layers.l2_regularizer(scale=FLAGS.weight_decay)
-
-    new_variables = tf.get_variable(name, shape=shape, initializer=initializer,
-                                    regularizer=regularizer)
-    return new_variables
-
-
-def output_layer(input_layer, num_labels):
-    '''
-    :param input_layer: 2D tensor
-    :param num_labels: int. How many output labels in total? (10 for cifar10 and 100 for cifar100)
-    :return: output layer Y = WX + B
-    '''
-    input_dim = input_layer.get_shape().as_list()[-1]
-    fc_w = create_variables(name='fc_weights', shape=[input_dim, num_labels], is_fc_layer=True,
-                            initializer=tf.uniform_unit_scaling_initializer(factor=1.0))
-    fc_b = create_variables(name='fc_bias', shape=[num_labels], initializer=tf.zeros_initializer())
-
-    fc_h = tf.matmul(input_layer, fc_w) + fc_b
-    return fc_h
 
 '''
 ####################################
@@ -65,7 +39,7 @@ def single_bn_layer(input_layer, dimension):
     return bn_layer_out
 
 def single_conv_layer(input_layer, shape, stride):
-    regularizer = tf.contrib.layers.l2_regularizer(scale=FLAGS.weight_decay)
+    regularizer = tf.contrib.layers.l2_regularizer(scale=Weight_Decay)
     initializer=tf.contrib.layers.xavier_initializer()
     filter = tf.get_variable('conv', shape=shape, initializer=initializer, regularizer=regularizer)
     conv_layer_out = tf.nn.conv2d(input_layer, filter, strides=[1, stride, stride, 1], padding='SAME')
@@ -81,15 +55,17 @@ Sandwich Layer
 ####################################
 '''
 
-def block_conv_bn_relu_layer(input_layer, filter_shape, stride):
+def sandwich_conv_bn_relu_layer(input_layer, filter_shape, stride):
+    in_channel = input_layer.get_shape().as_list()[-1]
     out_channel = filter_shape[-1]
+    
     conv_out = single_conv_layer(input_layer, shape=filter_shape, stride=stride)
     bn_out = single_bn_layer(conv_out, out_channel)
     relu_output = single_relu_layer(bn_out)
     return relu_output
 
 
-def block_bn_relu_conv_layer(input_layer, filter_shape, stride):
+def sandwich_bn_relu_conv_layer(input_layer, filter_shape, stride):
     in_channel = input_layer.get_shape().as_list()[-1]
     out_channel = filter_shape[-1]
     
@@ -98,100 +74,180 @@ def block_bn_relu_conv_layer(input_layer, filter_shape, stride):
     conv_out = single_conv_layer(relu_out, shape=filter_shape, stride=stride)
     return conv_out
 
+'''
+####################################
+Block Layer
+####################################
+'''
 
-def residual_block(input_layer, output_channel, first_block=False):
-    '''
-    Defines a residual block in ResNet
-    :param input_layer: 4D tensor
-    :param output_channel: int. return_tensor.get_shape().as_list()[-1] = output_channel
-    :param first_block: if this is the first residual block of the whole network
-    :return: 4D tensor.
-    '''
-    input_channel = input_layer.get_shape().as_list()[-1]
-
-    # When it's time to "shrink" the image size, we use stride = 2
-    if input_channel * 2 == output_channel:
-        increase_dim = True
+def residual_block(input_layer, input_dim, output_dim, filter_dims, reuse):
+    block_input_size = input_dim[0]
+    block_input_channel = input_dim[1]
+    block_output_size = output_dim[0]
+    block_output_channel = output_dim[1]
+    
+    # Validate inputs
+    # 1. Validate input dimensions.
+    # 2. Validate block_output_size = block_input_size // 2 OR block_output_size = block_input_size
+    # validate_tensor_dim(input_layer, (Batch_Size, block_input_size, block_input_size, block_input_channel))
+    
+    # Conv Branch
+    if block_input_size == block_output_size * 2:
         stride = 2
-    elif input_channel == output_channel:
-        increase_dim = False
+    else:
         stride = 1
-    else:
-        raise ValueError('Output and input channel does not match in residual blocks!!!')
+    
+    layer_out = input_layer
+    for i in range(len(filter_dims)):
+        input_channel = layer_out.get_shape().as_list()[-1]
+        with tf.variable_scope('block_%d' % i, reuse=reuse):
+            filter_dim = filter_dims[i]
+            filter_size = filter_dim[0]
+            out_channel = filter_dim[1]
+            layer_out = sandwich_bn_relu_conv_layer(layer_out, [filter_size, filter_size, input_channel, out_channel], stride)
+            stride = 1    # Only shrink size for at most once.
+    
+    # Identity Branch
+    identity_out = input_layer
+    # Shrink size if needed.
+    if block_input_size == block_output_size * 2:
+        identity_out = tf.nn.avg_pool(identity_out, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='VALID')
+    # Pad channels if needed.
+    channel_padding_size = block_output_channel - block_input_channel 
+    if channel_padding_size > 0:
+        pades = channel_padding_size // 2
+        identity_out = tf.pad(identity_out, [[0, 0], [0, 0], [0, 0], [pades, pades]])
+    
+    # Merge Output
+    block_output = layer_out + identity_out
+    
+    # Validate outputs
+    # 1. Validate output dimensions
+    # validate_tensor_dim(block_output, (Batch_Size, block_output_size, block_output_size, block_output_channel))
+    
+    return block_output
 
-    # The first conv layer of the first residual block does not need to be normalized and relu-ed.
-    with tf.variable_scope('conv1_in_block'):
-        if first_block:
-            filter = create_variables(name='conv', shape=[3, 3, input_channel, output_channel])
-            conv1 = tf.nn.conv2d(input_layer, filter=filter, strides=[1, 1, 1, 1], padding='SAME')
-        else:
-            conv1 = bn_relu_conv_layer(input_layer, [3, 3, input_channel, output_channel], stride)
 
-    with tf.variable_scope('conv2_in_block'):
-        conv2 = bn_relu_conv_layer(conv1, [3, 3, output_channel, output_channel], 1)
+def residual_section(input_layer, input_dim, output_dim, filter_dims, repeat_times, reuse):
+    block_input_size = input_dim[0]
+    block_input_channel = input_dim[1]
+    block_output_size = output_dim[0]
+    block_output_channel = output_dim[1]
+    
+    # Validate inputs
+    # 1. Validate input dimensions.
+    # 2. Validate block_output_size = block_input_size // 2 OR block_output_size = block_input_size
+    validate_tensor_dim(input_layer, (Batch_Size, block_input_size, block_input_size, block_input_channel))
+    
+    sec_input_dim = input_dim
+    sec_output_dim = output_dim
+    
+    block_out = input_layer
+    for rp in range(repeat_times):
+        with tf.variable_scope('rpt_%d' % rp, reuse=reuse):
+            block_out = residual_block(block_out, sec_input_dim, sec_output_dim, filter_dims, reuse)
+            sec_input_dim = sec_output_dim
+            sec_output_dim = sec_output_dim
+    
+    # Validate outputs
+    # 1. Validate output dimensions.
+    validate_tensor_dim(block_out, (Batch_Size, block_output_size, block_output_size, block_output_channel))
+    
+    return block_out
 
-    # When the channels of input layer and conv2 does not match, we add zero pads to increase the
-    #  depth of input layers
-    if increase_dim is True:
-        pooled_input = tf.nn.avg_pool(input_layer, ksize=[1, 2, 2, 1],
-                                      strides=[1, 2, 2, 1], padding='VALID')
-        padded_input = tf.pad(pooled_input, [[0, 0], [0, 0], [0, 0], [input_channel // 2,
-                                                                     input_channel // 2]])
-    else:
-        padded_input = input_layer
 
-    output = conv2 + padded_input
-    return output
+def conv1_section(input_layer, input_dim, output_dim, filter_dim):
+    block_input_size = input_dim[0]
+    block_input_channel = input_dim[1]
+    block_output_size = output_dim[0]
+    block_output_channel = output_dim[1]
+    
+    validate_tensor_dim(input_layer, (Batch_Size, block_input_size, block_input_size, block_input_channel))
+    
+    sec_out = sandwich_conv_bn_relu_layer(input_layer, 
+                  [filter_dim[0], filter_dim[0], block_input_channel, block_output_channel], 1)
+    
+    validate_tensor_dim(sec_out, (Batch_Size, block_output_size, block_output_size, block_output_channel))
+    
+    return sec_out
 
 
-def inference(input_tensor_batch, n, reuse):
-    '''
-    The main function that defines the ResNet. total layers = 1 + 2n + 2n + 2n + 1 = 6n + 2
-    :param input_tensor_batch: 4D tensor
-    :param n: num_residual_blocks
-    :param reuse: To build train graph, reuse=False. To build validation graph and share weights
-    with train graph, resue=True
-    :return: last layer in the network. Not softmax-ed
-    '''
+def fc_section(input_layer, num_labels):
+    # Global Average Pooling
+    in_channel = input_layer.get_shape().as_list()[-1]
+    bn_layer = single_bn_layer(input_layer, in_channel)
+    relu_layer = single_relu_layer(bn_layer)
+    global_pool = tf.reduce_mean(relu_layer, [1, 2])
+    
+    # Get wx
+    input_dim = global_pool.get_shape().as_list()[-1]
+    initializer = tf.uniform_unit_scaling_initializer(factor=1.0)
+    regularizer = tf.contrib.layers.l2_regularizer(scale=Weight_Decay)
+    shape = [input_dim, num_labels]
+    fc_w = tf.get_variable('fc_weights', shape=shape, initializer=initializer, regularizer=regularizer)
 
+    # Get bx
+    initializer = tf.zeros_initializer()
+    regularizer = tf.contrib.layers.l2_regularizer(scale=Weight_Decay)
+    shape = [num_labels]
+    fc_b = tf.get_variable('fc_bias', shape=shape, initializer=initializer, regularizer=regularizer)
+
+    # Fc layer
+    fc_h = tf.matmul(global_pool, fc_w) + fc_b    
+    
+    return fc_h
+
+
+def forward(input_tensor_batch, filter_dims, reuse=False):   
     layers = []
-    with tf.variable_scope('conv0', reuse=reuse):
-        conv0 = conv_bn_relu_layer(input_tensor_batch, [3, 3, 3, 16], 1)
-        activation_summary(conv0)
-        layers.append(conv0)
+    sec_out = input_tensor_batch
+    
+    # Section 1: Conv1
+    input_dim = (64, 3)
+    output_dim = (64, 64)
+    with tf.variable_scope('conv1', reuse=reuse):
+        sec_out = conv1_section(sec_out, input_dim, output_dim, (1, 64))
+    
+    # Section 2: Conv2_x
+    input_dim = (64, 64)
+    output_dim = (64, 64)
+    with tf.variable_scope('conv2', reuse=reuse):
+        sec_out = residual_section(sec_out, input_dim, output_dim, filter_dims[0][0], filter_dims[0][1], reuse=reuse)
+    
+    # Section 3: Conv3_x
+    input_dim = (64, 64)
+    output_dim = (32, 128)
+    with tf.variable_scope('conv3', reuse=reuse):
+        sec_out = residual_section(sec_out, input_dim, output_dim, filter_dims[1][0], filter_dims[1][1], reuse=reuse)
+    
+    # Section 4: Conv4_x
+    input_dim = (32, 128)
+    output_dim = (16, 256)
+    with tf.variable_scope('conv4', reuse=reuse):
+        sec_out = residual_section(sec_out, input_dim, output_dim, filter_dims[2][0], filter_dims[2][1], reuse=reuse)
+    
+    # Section 5: Conv5_x
+    input_dim = (16, 256)
+    output_dim = (8, 512)
+    with tf.variable_scope('conv5', reuse=reuse):
+        sec_out = residual_section(sec_out, input_dim, output_dim, filter_dims[3][0], filter_dims[3][1], reuse=reuse)
 
-    for i in range(n):
-        with tf.variable_scope('conv1_%d' %i, reuse=reuse):
-            if i == 0:
-                conv1 = residual_block(layers[-1], 16, first_block=True)
-            else:
-                conv1 = residual_block(layers[-1], 16)
-            activation_summary(conv1)
-            layers.append(conv1)
-
-    for i in range(n):
-        with tf.variable_scope('conv2_%d' %i, reuse=reuse):
-            conv2 = residual_block(layers[-1], 32)
-            activation_summary(conv2)
-            layers.append(conv2)
-
-    for i in range(n):
-        with tf.variable_scope('conv3_%d' %i, reuse=reuse):
-            conv3 = residual_block(layers[-1], 64)
-            layers.append(conv3)
-        assert conv3.get_shape().as_list()[1:] == [8, 8, 64]
-
+    # Section 2: FC
     with tf.variable_scope('fc', reuse=reuse):
-        in_channel = layers[-1].get_shape().as_list()[-1]
-        bn_layer = batch_normalization_layer(layers[-1], in_channel)
-        relu_layer = tf.nn.relu(bn_layer)
-        global_pool = tf.reduce_mean(relu_layer, [1, 2])
+        sec_out = fc_section(sec_out, 200)
 
-        assert global_pool.get_shape().as_list()[-1:] == [64]
-        output = output_layer(global_pool, 10)
-        layers.append(output)
+    return sec_out
 
-    return layers[-1]
+
+def inference(input_tensor_batch, reuse=False):
+    filter_dims = [[((3, 64), (3, 64)), 3], \
+                   [((3, 128), (3, 128)), 4], \
+                   [((3, 256), (3, 256)), 6], \
+                   [((3, 512), (3, 512)), 3]]
+    
+    with tf.device('/gpu:0'):
+        resnet_out = forward(input_tensor_batch, filter_dims, reuse)
+    return resnet_out
 
 
 def test_graph(train_dir='logs'):
