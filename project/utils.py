@@ -1,9 +1,76 @@
 from scipy.misc import imread
+from flags import *
+import tensorflow as tf
 import numpy as np
 import os
+import cv2
 
 
-def load_tiny_imagenet(path, dtype=np.float32, subtract_mean=True, mode='dev'):
+def softmax_loss(logits, labels):
+    labels = tf.cast(labels, tf.int64)
+    cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=labels)
+    cross_entropy_mean = tf.reduce_mean(cross_entropy)
+    return cross_entropy_mean
+
+
+def top_k_error(predictions, labels, k):
+    batch_size = predictions.get_shape().as_list()[0]
+    in_top1 = tf.to_float(tf.nn.in_top_k(predictions, labels, k=1))
+    num_correct = tf.reduce_sum(in_top1)
+    num_error = batch_size - num_correct
+    return 1.0 * num_error / batch_size
+
+
+def randomly_horizontal_flip(image, axis):
+    flip_odd = np.random.randint(low=0, high=2)
+    if flip_odd == 0:
+        image = cv2.flip(image, axis)
+    return image
+
+
+def whitening_image(image):
+    mean = np.mean(image)
+    num_pixel = FLAGS.IMG_SIZE * FLAGS.IMG_SIZE * FLAGS.CHANNEL
+    std = np.max([np.std(image), 1.0 / np.sqrt(num_pixel)])
+    image = (image - mean) / std
+    return image
+
+
+def sample_batch(X, y, batch_size, aug=False):
+    num_train, _, _, _ = X.shape
+    sampleIndice = np.random.choice(num_train, batch_size)
+    X_batch = X[sampleIndice,:]
+    y_batch = y[sampleIndice]
+    
+    if aug:
+        for i in range(train_batch_size):
+            # Randomly flip
+            randomly_horizontal_flip(X_batch[i], axis=1)
+            # Whitening
+            whitening_image(X_batch[i])
+
+    return X_batch, y_batch
+
+
+def save_sess(saver, sess, step):
+    print('Saving checkpoints')
+    saver.save(sess, FLAGS.CKPT_PATH, global_step=step)
+
+
+def get_sess(saver):
+    sess = tf.Session()
+    if FLAGS.USE_CKPT is True:
+        print('Restored from checkpoint...')
+        saver.restore(sess, FLAGS.CKPT_PATH)
+    else:
+        print('Initialize new Session...')
+        init = tf.global_variables_initializer()
+        sess.run(init)
+    
+    return sess
+
+
+def load_tiny_imagenet(path, dtype=np.float32, subtract_mean=True):
     """
     Load TinyImageNet. Each of TinyImageNet-100-A, TinyImageNet-100-B, and
     TinyImageNet-200 have the same directory structure, so this can be used
@@ -49,8 +116,6 @@ def load_tiny_imagenet(path, dtype=np.float32, subtract_mean=True, mode='dev'):
         boxes_file = os.path.join(path, 'train', wnid, '%s_boxes.txt' % wnid)
         with open(boxes_file, 'r') as f:
             filenames = [x.split('\t')[0] for x in f]
-            if mode == 'dev':
-                filenames = filenames[0:100]
         num_images = len(filenames)
 
         X_train_block = np.zeros((num_images, 3, 64, 64), dtype=dtype)
@@ -77,8 +142,6 @@ def load_tiny_imagenet(path, dtype=np.float32, subtract_mean=True, mode='dev'):
             img_file, wnid = line.split('\t')[:2]
             img_files.append(img_file)
             val_wnids.append(wnid)
-            if mode == 'dev' and len(img_files) >= 10:
-                break
         num_val = len(img_files)
         y_val = np.array([wnid_to_label[wnid] for wnid in val_wnids])
         X_val = np.zeros((num_val, 3, 64, 64), dtype=dtype)
@@ -93,8 +156,6 @@ def load_tiny_imagenet(path, dtype=np.float32, subtract_mean=True, mode='dev'):
     # Students won't have test labels, so we need to iterate over files in the
     # images directory.
     img_files = os.listdir(os.path.join(path, 'test', 'images'))
-    if mode == 'dev':
-        img_files = img_files[0:10]
     X_test = np.zeros((len(img_files), 3, 64, 64), dtype=dtype)
     for i, img_file in enumerate(img_files):
         img_file = os.path.join(path, 'test', 'images', img_file)
@@ -121,10 +182,10 @@ def load_tiny_imagenet(path, dtype=np.float32, subtract_mean=True, mode='dev'):
         X_val -= mean_image[None]
         X_test -= mean_image[None]
     
-    print(X_train.shape)
     X_train = X_train.transpose((0, 2, 3, 1))
     X_val = X_val.transpose((0, 2, 3, 1))
     X_test = X_test.transpose((0, 2, 3, 1))
+    mean_image = mean_image.transpose((1, 2, 0))
     
     return {
       'X_train': X_train,
