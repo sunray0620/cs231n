@@ -30,7 +30,7 @@ def randomly_horizontal_flip(image, axis):
 
 def whitening_image(image):
     mean = np.mean(image)
-    num_pixel = FLAGS.IMG_SIZE * FLAGS.IMG_SIZE * FLAGS.CHANNEL
+    num_pixel = FLAGS.IMG_SIZE * FLAGS.IMG_SIZE * FLAGS.IMG_CHANNEL
     std = np.max([np.std(image), 1.0 / np.sqrt(num_pixel)])
     image = (image - mean) / std
     return image
@@ -43,7 +43,7 @@ def sample_batch(X, y, batch_size, aug=False):
     y_batch = y[sampleIndice]
     
     if aug:
-        for i in range(train_batch_size):
+        for i in range(batch_size):
             # Randomly flip
             randomly_horizontal_flip(X_batch[i], axis=1)
             # Whitening
@@ -61,7 +61,8 @@ def get_sess(saver):
     sess = tf.Session()
     if FLAGS.USE_CKPT is True:
         print('Restored from checkpoint...')
-        saver.restore(sess, FLAGS.CKPT_PATH)
+        file_path = "{0}-{1}".format(FLAGS.CKPT_PATH, FLAGS.CUR_STEP)
+        saver.restore(sess, file_path)
     else:
         print('Initialize new Session...')
         init = tf.global_variables_initializer()
