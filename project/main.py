@@ -1,15 +1,18 @@
 import tensorflow as tf
 import utils
-import resnet_model
 
+from resnet_trainer import *
+from resnet_tester import *
 from resnet import *
 from flags import *
 
 
 def main():
-    resnet = Resnet()
-    resnet.train()
-        
+    # resnet_trainer = ResnetTrainer()
+    # resnet_trainer.train()
+    
+    resnet_tester = ResnetTester()
+    resnet_tester.test()
         
 if __name__ == "__main__":
     main()

@@ -98,7 +98,8 @@ def load_tiny_imagenet(path, dtype=np.float32, subtract_mean=True):
 
     # Map wnids to integer labels
     wnid_to_label = {wnid: i for i, wnid in enumerate(wnids)}
-
+    label_to_wnid = {i: wnid for i, wnid in enumerate(wnids)}
+    
     # Use words.txt to get names for each class
     with open(os.path.join(path, 'words.txt'), 'r') as f:
         wnid_to_words = dict(line.split('\t') for line in f)
@@ -197,4 +198,63 @@ def load_tiny_imagenet(path, dtype=np.float32, subtract_mean=True):
       'y_test': y_test,
       'class_names': class_names,
       'mean_image': mean_image,
+      'wnid_to_label': wnid_to_label,
+      'label_to_wnid': label_to_wnid,
     }
+
+
+def load_val_test_tiny_imagenet(path, dtype=np.float32, mean_image=None):
+
+    # First load wnids
+    with open(os.path.join(path, 'wnids.txt'), 'r') as f:
+        wnids = [x.strip() for x in f]
+
+    # Map wnids to integer labels
+    wnid_to_label = {wnid: i for i, wnid in enumerate(wnids)}
+    label_to_wnid = {i: wnid for i, wnid in enumerate(wnids)}
+
+    # Next load validation data
+    with open(os.path.join(path, 'val', 'val_annotations.txt'), 'r') as f:
+        img_files = []
+        val_wnids = []
+        for line in f:
+            img_file, wnid = line.split('\t')[:2]
+            img_files.append(img_file)
+            val_wnids.append(wnid)
+        
+        y_val_label = val_wnids
+        X_val = np.zeros((len(img_files), 3, 64, 64), dtype=dtype)
+        for i, img_file in enumerate(img_files):
+            img_file = os.path.join(path, 'val', 'images', img_file)
+            img = imread(img_file)
+            if img.ndim == 2:
+                img.shape = (64, 64, 1)
+            X_val[i] = img.transpose((2, 0, 1))
+
+    # Next load test images
+    # Students won't have test labels, so we need to iterate over files in the
+    # images directory.
+    test_image_name = 'test_{0}.JPEG'
+    img_files = [test_image_name.format(i) for i in range(10000)]
+    X_test = np.zeros((len(img_files), 3, 64, 64), dtype=dtype)
+    for i, img_file in enumerate(img_files):
+        img_file = os.path.join(path, 'test', 'images', img_file)
+        img = imread(img_file)
+        if img.ndim == 2:
+            img.shape = (64, 64, 1)
+        X_test[i] = img.transpose((2, 0, 1))
+
+    X_val = X_val.transpose((0, 2, 3, 1))
+    X_test = X_test.transpose((0, 2, 3, 1))
+    X_val -= mean_image[None]
+    X_test -= mean_image[None]
+    
+    return {
+      'X_val': X_val,
+      'y_val_label': y_val_label,
+      'X_test': X_test,
+      'wnid_to_label': wnid_to_label,
+      'label_to_wnid': label_to_wnid,
+    }
+    
+    
