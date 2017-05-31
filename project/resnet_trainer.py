@@ -9,29 +9,39 @@ class ResnetTrainer(object):
     This Object is responsible for all the training and validation process
     '''
     def __init__(self):
-        self.init_placeholders()
-        self.cur_step = 1
+        self.init_train_placeholders()
+        self.init_val_placeholders()
+        self.init_test_placeholders()
 
-        
-    def init_placeholders(self):
+    '''
+    #######################
+    Initialize placeholders
+    #######################
+    '''
+    def init_train_placeholders(self):
         train_phshape = [FLAGS.Train_Batch_Size, FLAGS.IMG_SIZE, FLAGS.IMG_SIZE, FLAGS.IMG_CHANNEL]
         self.train_image_placeholder = tf.placeholder(dtype=tf.float32, shape=train_phshape)
-        self.train_label_placeholder = tf.placeholder(dtype=tf.int32, shape=[FLAGS.Train_Batch_Size])
-              
+        self.train_label_placeholder = tf.placeholder(dtype=tf.int32, shape=[FLAGS.Train_Batch_Size])        
+        self.lr_placeholder = tf.placeholder(dtype=tf.float32, shape=[])
+
+        
+    def init_val_placeholders(self):
         val_phshape = [FLAGS.Val_Batch_Size, FLAGS.IMG_SIZE, FLAGS.IMG_SIZE, FLAGS.IMG_CHANNEL]
         self.val_image_placeholder = tf.placeholder(dtype=tf.float32, shape=val_phshape)
         self.val_label_placeholder = tf.placeholder(dtype=tf.int32, shape=[FLAGS.Val_Batch_Size])
-        
-        self.lr_placeholder = tf.placeholder(dtype=tf.float32, shape=[])
-
     
-    def update_variables(self, total_loss, global_step):
-        opt = tf.train.MomentumOptimizer(self.lr_placeholder, 0.9)
-        # opt = tf.train.AdamOptimizer(learning_rate=0.01)
-        train_op = opt.minimize(total_loss, global_step=global_step)
-        return train_op
-        
     
+    def init_test_placeholders(self):
+        # Just one batch size
+        val_phshape = [FLAGS.Test_Batch_Size, FLAGS.IMG_SIZE, FLAGS.IMG_SIZE, FLAGS.IMG_CHANNEL]
+        self.test_image_placeholder = tf.placeholder(dtype=tf.float32, shape=val_phshape)
+                
+    
+    '''
+    #######################
+    Build networks.
+    #######################
+    '''
     def build_train_resnet(self):
         global_step = tf.Variable(1, trainable=False)
         
@@ -46,10 +56,10 @@ class ResnetTrainer(object):
         self.train_op = self.update_variables(self.train_loss, global_step)
         
         # Add some summaries
-        train_summary_lr = tf.summary.scalar('learning_rate', self.lr_placeholder)
         train_summary_loss = tf.summary.scalar('train_loss', self.train_loss)
         train_summary_error = tf.summary.scalar('train_top1_error', self.train_top1_error)
-        self.train_summary = tf.summary.merge([train_summary_lr, train_summary_loss, train_summary_error])
+        self.train_summary = tf.summary.merge([train_summary_loss, train_summary_error])
+    
     
     def build_val_resnet(self):
         val_resnet = Resnet(use_dropout=False, reuse_variables=True)
@@ -63,16 +73,25 @@ class ResnetTrainer(object):
         val_summary_loss = tf.summary.scalar('val_loss', self.val_softmax_loss)
         val_summary_error = tf.summary.scalar('val_top1_error', self.val_top1_error)
         self.val_summary = tf.summary.merge([val_summary_loss, val_summary_error])
-   
 
-    def get_lr(self, step):
-        if step > 40000:
-            return 0.001
-        elif step > 17000:
-            return 0.01
-        else:
-            return 0.1
-        
+    
+    def build_test_resnet(self):       
+        test_resnet = Resnet(use_dropout=False, reuse_variables=True)
+        test_logits = test_resnet.forward(self.test_image_placeholder)      
+        self.test_predictions = tf.nn.softmax(test_logits)
+
+    
+    def update_variables(self, total_loss, global_step):
+        opt = tf.train.MomentumOptimizer(self.lr_placeholder, 0.9)
+        # opt = tf.train.AdamOptimizer(learning_rate=0.01)
+        train_op = opt.minimize(total_loss, global_step=global_step)
+        return train_op
+
+    '''
+    #######################
+    Build networks.
+    #######################
+    '''
     def train(self):
         # Read training and validation data.
         data = utils.load_tiny_imagenet('./data/tiny-imagenet-200')
@@ -87,9 +106,10 @@ class ResnetTrainer(object):
         # Build the graph for train and validation
         self.build_train_resnet()
         self.build_val_resnet()
+        self.build_test_resnet()
                 
         # Initialize or load a session
-        saver = tf.train.Saver(tf.global_variables())
+        saver = tf.train.Saver(max_to_keep=10)
         sess = utils.get_sess(saver);
         summary_writer = tf.summary.FileWriter(FLAGS.LOG_PATH, sess.graph)
         
@@ -105,57 +125,101 @@ class ResnetTrainer(object):
         for step in range(start_step, FLAGS.Train_Steps + 10):
             print('---- step: %d -----' % step)
             
-            start_time = time.time()            
-            X_train, y_train = utils.sample_batch(data['X_train'], data['y_train'], FLAGS.Train_Batch_Size, aug=True)                
-            end_time = time.time()
-            if FLAGS.Verbose_Mode:
-                print("Read data took {0:.2f} secs".format(end_time-start_time))
+            # Conduct one training step
+            self.one_train_op(sess, data['X_train'], data['y_train'], 0.1, step, summary_writer)
             
-            start_time = time.time()
-            cur_lr = self.get_lr(step)
-            (_,
-             train_loss_value, 
-             train_error_value,
-             train_summary_value) = sess.run([self.train_op, 
-                                        self.train_loss, 
-                                        self.train_top1_error,
-                                        self.train_summary],
-                                    feed_dict = { self.train_image_placeholder: X_train,
-                                                  self.train_label_placeholder: y_train,
-                                                  self.lr_placeholder: cur_lr })
-            summary_writer.add_summary(train_summary_value, step)
-            end_time = time.time()
-            if FLAGS.Verbose_Mode:
-                print("Learning took {0:.2f} secs".format(end_time-start_time))
-            print("Train loss {0:.4f}, Error {1:.4f}".format(train_loss_value, train_error_value))
+            # Conduct one partial validation step
+            if step % FLAGS.Part_Val_Freq == 0:
+                self.one_partial_val_op(sess, data['X_val'], data['y_val'], step, summary_writer)
             
-            if step % FLAGS.Val_Freq == 0:
-                # Get Validation Performance.
-                start_time = time.time()
-                X_val, y_val = utils.sample_batch(data['X_val'], data['y_val'], FLAGS.Val_Batch_Size, aug=False)
-                                
-                (val_loss_value, 
-                 val_error_value, 
-                 val_summary_value) = sess.run([self.val_softmax_loss,
-                                          self.val_top1_error,
-                                          self.val_summary],
-                                     feed_dict = { self.val_image_placeholder: X_val,
-                                                   self.val_label_placeholder: y_val })
-                summary_writer.add_summary(val_summary_value, step)
-                print("Val loss {0:.4f}, Error {1:.4f}".format(val_loss_value, val_error_value))
-                end_time = time.time()
-                if FLAGS.Verbose_Mode:
-                    print("Validation took {0:.2f} secs".format(end_time-start_time))
+            if step % FLAGS.Full_Val_Freq == 0:
+                self.one_full_val_op(sess, data['X_val'], data['y_val'], data['label_to_wnid'], step)
                 
-                
+            # Save Checkpoint.
             if step % FLAGS.CKPT_FREQ == 0:
-                # Save Checkpoint.
                 utils.save_sess(saver, sess, step)
                 
+    
+    '''
+    ##############################################
+    Helper functions that run operations.
+    ##############################################
+    '''
+    def one_train_op(self, sess, X_train, y_train, lr, step, sw):
+        start_time = time.time()            
+        X_train_batch, y_train_batch = utils.sample_batch(X_train, y_train, FLAGS.Train_Batch_Size, aug=True)
+        
+        if FLAGS.Verbose_Mode:
+            print("Use learning rate {0}".format(lr))
+            
+        (_,
+         train_loss_value, 
+         train_error_value,
+         train_summary_value) = sess.run([self.train_op, 
+                                         self.train_loss, 
+                                         self.train_top1_error,
+                                         self.train_summary],
+                                feed_dict = { self.train_image_placeholder: X_train_batch,
+                                              self.train_label_placeholder: y_train_batch,
+                                              self.lr_placeholder: lr })
+        sw.add_summary(train_summary_value, step)
+        end_time = time.time()
+
+        print("Train loss {0:.4f}, Error {1:.4f} ({2:.2f} secs)".format(train_loss_value, 
+                                                                        train_error_value, 
+                                                                        end_time-start_time))
+
+        
+    def one_partial_val_op(self, sess, X_val, y_val, step, sw):
+        start_time = time.time()
+        X_val_batch, y_val_batch = utils.sample_batch(X_val, y_val, FLAGS.Val_Batch_Size, aug=False)
+                        
+        (val_loss_value, 
+         val_error_value, 
+         val_summary_value) = sess.run([self.val_softmax_loss,
+                                        self.val_top1_error,
+                                        self.val_summary],
+                             feed_dict = { self.val_image_placeholder: X_val_batch,
+                                           self.val_label_placeholder: y_val_batch })
+        sw.add_summary(val_summary_value, step)
+        end_time = time.time()
+        
+        print("Val loss [{0:.4f}], Error [{1:.4f}] ({2:.2f} secs)".format(val_loss_value, 
+                                                                          val_error_value, 
+                                                                          end_time-start_time))
         
         
+    def one_full_val_op(self, sess, X_test, y_test, label_to_wnid, step):
+        print("Doing Full Validation....")
+        start_time = time.time()
         
+        batch_size = FLAGS.Test_Batch_Size
+        batch_count = FLAGS.Test_Batch_Count
+        num_input = batch_size * batch_count
         
+        predictions = []
+        for btch in range(batch_count):
+            # print("Process batch {0}".format(btch))
+            skip_count = btch * batch_size
+            batch_input = X_test[skip_count:skip_count + batch_size]
+            
+            batch_test_scores = sess.run(self.test_predictions,
+                                        feed_dict = { self.test_image_placeholder: batch_input })
+            
+            batch_test_prediction = np.argmax(batch_test_scores, axis=1)
+            predictions.extend(batch_test_prediction)
+        
+        end_time = time.time()
+        
+        actual_output = [label_to_wnid[pred] for pred in predictions]
+        expected_output = [label_to_wnid[y] for y in y_test]
+        num_correct = sum([actual_output[i] == expected_output[i] for i in range(num_input)])
+        
+        print("Full Validation took {0:.2f} secs".format(end_time-start_time))
+        print("Full Validation accuracy: {0:.4f}".format(num_correct/num_input))
+        
+        f=open("full_val.txt", "a+")
+        print("{0}\t{1}".format(step, num_correct), file=f)
         
         
         

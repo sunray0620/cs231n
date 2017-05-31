@@ -12,17 +12,47 @@ class Resnet(object):
         self.use_dropout = use_dropout
         self.p_L = 0.5
         self.reuse_variables = reuse_variables
-
+        
+        # 34 Layer structure.
         self.filter_dim_list = [
                                [((3, 64), (3, 64)), 3], \
                                [((3, 128), (3, 128)), 4], \
                                [((3, 256), (3, 256)), 6], \
                                [((3, 512), (3, 512)), 3]]
         
+        '''
+        # 50 Layer structure.
+        self.filter_dim_list = [
+                               [((1, 64), (3, 64), (1, 256)), 3], \
+                               [((1, 128), (3, 128), (1, 512)), 4], \
+                               [((1, 256), (3, 256), (1, 1024)), 6], \
+                               [((1, 512), (3, 512), (1, 2048)), 3]]
+        
+        '''
+        
+        '''
+        # 101 Layer structure.
+        self.filter_dim_list = [
+                               [((1, 64), (3, 64), (1, 256)), 3], \
+                               [((1, 128), (3, 128), (1, 512)), 4], \
+                               [((1, 256), (3, 256), (1, 1024)), 23], \
+                               [((1, 512), (3, 512), (1, 2048)), 3]]
+        '''
+        
+        '''
+        # 152 Layer structure.
+        self.filter_dim_list = [
+                               [((1, 64), (3, 64), (1, 256)), 3], \
+                               [((1, 128), (3, 128), (1, 512)), 8], \
+                               [((1, 256), (3, 256), (1, 1024)), 36], \
+                               [((1, 512), (3, 512), (1, 2048)), 3]]
+        '''
+        
         self.total_res_blocks, self.total_res_layers = self.count_res_layers()
         print("There are totally {0} res blocks".format(self.total_res_blocks))
         print("There are totally {0} res layers".format(self.total_res_layers))
-        
+    
+    
     def count_res_layers(self):
         total_res_blocks = 0
         total_res_layers = 0
@@ -62,6 +92,7 @@ class Resnet(object):
         bn_layer_out = tf.nn.batch_normalization(input_layer, mean, variance, beta, gamma, BN_EPSILON)
         return bn_layer_out
 
+    
     def single_conv_layer(self, input_layer, shape, stride):
         regularizer = tf.contrib.layers.l2_regularizer(scale=FLAGS.Weight_Decay)
         initializer=tf.contrib.layers.xavier_initializer()
@@ -69,6 +100,7 @@ class Resnet(object):
         conv_layer_out = tf.nn.conv2d(input_layer, filter, strides=[1, stride, stride, 1], padding='SAME')
         return conv_layer_out
 
+    
     def single_relu_layer(self, input_layer):
         relu_layer_out = tf.nn.relu(input_layer)
         return relu_layer_out
