@@ -126,7 +126,7 @@ class ResnetTrainer(object):
             print('---- step: %d -----' % step)
             
             # Conduct one training step
-            self.one_train_op(sess, data['X_train'], data['y_train'], 0.1, step, summary_writer)
+            self.one_train_op(sess, data['X_train'], data['y_train'], FLAGS.Learning_Rate, step, summary_writer)
             
             # Conduct one partial validation step
             if step % FLAGS.Part_Val_Freq == 0:
