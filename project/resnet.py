@@ -4,14 +4,14 @@ import numpy as np
 from flags import *
 
 
-BN_EPSILON = 0.001
-
-
 class Resnet(object):
     def __init__(self, use_dropout, reuse_variables):
+        self.reuse_variables = reuse_variables
+        self.is_training = True
+        
         self.use_dropout = use_dropout
         self.p_L = 0.5
-        self.reuse_variables = reuse_variables
+        self.num_block_activated = tf.constant(0)
         
         # 34 Layer structure.
         self.filter_dim_list = [
@@ -27,7 +27,6 @@ class Resnet(object):
                                [((1, 128), (3, 128), (1, 512)), 4], \
                                [((1, 256), (3, 256), (1, 1024)), 6], \
                                [((1, 512), (3, 512), (1, 2048)), 3]]
-        
         '''
         
         '''
@@ -63,7 +62,7 @@ class Resnet(object):
     
     '''
     ####################################
-    Single Layer
+    Helpers
     ####################################
     '''
 
@@ -76,41 +75,75 @@ class Resnet(object):
             if actual_dim[i] != tensors_dim[i]:
                 raise ValueError('Dimension does not match E[%d] - A[%d]' % (tensors_dim[i], actual_dim[i]))
 
-
+    
+    def create_variables(name, shape, initializer=None, regularizer=None):
+        initializer = tf.contrib.layers.xavier_initializer()
+        regularizer = tf.contrib.layers.l2_regularizer(scale=FLAGS.weight_decay)
+        new_variables = tf.get_variable(name, shape=shape, 
+                                        initializer=initializer,
+                                        regularizer=regularizer)
+        return new_variables
+    
     '''
     ####################################
     Single Layer
     ####################################
     '''
 
-    def single_bn_layer(self, input_layer, dimension):
-        mean, variance = tf.nn.moments(input_layer, axes=[0, 1, 2])
-        beta = tf.get_variable('beta', dimension, tf.float32,
-                                   initializer=tf.constant_initializer(0.0, tf.float32))
-        gamma = tf.get_variable('gamma', dimension, tf.float32,
-                                    initializer=tf.constant_initializer(1.0, tf.float32))
-        bn_layer_out = tf.nn.batch_normalization(input_layer, mean, variance, beta, gamma, BN_EPSILON)
+    def single_bn_layer(self, x, reuse=None, scope=None):
+        bn_layer_out = tf.contrib.layers.batch_norm(x,
+                                                    decay=0.99,
+                                                    center=True,
+                                                    scale=True,
+                                                    epsilon=0.001,
+                                                    is_training=self.is_training,
+                                                    reuse=reuse,
+                                                    trainable=True,
+                                                    fused=True,
+                                                    data_format="NCHW",
+                                                    scope=scope)
         return bn_layer_out
 
     
-    def single_conv_layer(self, input_layer, shape, stride):
-        regularizer = tf.contrib.layers.l2_regularizer(scale=FLAGS.Weight_Decay)
-        initializer=tf.contrib.layers.xavier_initializer()
-        filter = tf.get_variable('conv', shape=shape, initializer=initializer, regularizer=regularizer)
-        conv_layer_out = tf.nn.conv2d(input_layer, filter, strides=[1, stride, stride, 1], padding='SAME')
+    def single_conv_layer(self, x, filter_size, out_channel, stride):        
+        conv_layer_out = tf.layers.conv2d(x,
+                                          filters=out_channel,
+                                          kernel_size=(filter_size, filter_size),
+                                          strides=(stride, stride),
+                                          padding='SAME',
+                                          data_format='channels_first',
+                                          use_bias=True,
+                                          kernel_initializer=tf.contrib.layers.xavier_initializer(),
+                                          bias_initializer=tf.zeros_initializer(),
+                                          kernel_regularizer=tf.contrib.layers.l2_regularizer(scale=FLAGS.Weight_Decay),
+                                          bias_regularizer=None,
+                                          reuse=None)
         return conv_layer_out
 
     
-    def single_relu_layer(self, input_layer):
-        relu_layer_out = tf.nn.relu(input_layer)
+    def single_relu_layer(self, x):
+        relu_layer_out = tf.nn.relu(x)
         return relu_layer_out
+    
+    
+    def single_fully_connect(self, x, num_outputs):
+        fc_out = tf.contrib.layers.fully_connected(x,
+                                                   num_outputs=num_outputs,
+                                                   activation_fn=None,
+                                                   weights_initializer=tf.contrib.layers.xavier_initializer(),
+                                                   weights_regularizer=tf.contrib.layers.l2_regularizer(scale=FLAGS.Weight_Decay),
+                                                   biases_initializer=tf.zeros_initializer(),
+                                                   biases_regularizer=None,
+                                                   reuse=None,
+                                                   scope=None)
+        return fc_out
 
     '''
     ####################################
     Sandwich Layer
     ####################################
     '''
-
+    '''
     def sandwich_conv_bn_relu_layer(self, input_layer, filter_shape, stride):
         in_channel = input_layer.get_shape().as_list()[-1]
         out_channel = filter_shape[-1]
@@ -119,15 +152,13 @@ class Resnet(object):
         bn_out = self.single_bn_layer(conv_out, out_channel)
         relu_output = self.single_relu_layer(bn_out)
         return relu_output
-
-
-    def sandwich_bn_relu_conv_layer(self, input_layer, filter_shape, stride):
-        in_channel = input_layer.get_shape().as_list()[-1]
-        out_channel = filter_shape[-1]
-
-        bn_out = self.single_bn_layer(input_layer, in_channel)
+    '''
+    
+    def sandwich_bn_relu_conv_layer(self, x, filter_size, out_channel, stride):
+        bn_out = self.single_bn_layer(x)
         relu_out = self.single_relu_layer(bn_out)
-        conv_out = self.single_conv_layer(relu_out, shape=filter_shape, stride=stride)
+        conv_out = self.single_conv_layer(relu_out, filter_size=filter_size, 
+                                          out_channel=out_channel, stride=stride)
         return conv_out
 
     '''
@@ -146,6 +177,7 @@ class Resnet(object):
         # 1. Validate input dimensions.
         # 2. Validate block_output_size = block_input_size // 2 OR block_output_size = block_input_size
         # validate_tensor_dim(input_layer, (FLAGS.Train_Batch_Size, block_input_size, block_input_size, block_input_channel))
+        print("Block {0}, rpt {1}, input shape: {2}".format(sec_num, rpt_num, input_layer.get_shape().as_list()))
         
         # Conv Branch
         if block_input_size == block_output_size * 2:
@@ -155,39 +187,48 @@ class Resnet(object):
 
         layer_out = input_layer
         for i in range(len(filter_dims)):
-            input_channel = layer_out.get_shape().as_list()[-1]
             with tf.variable_scope('block_%d' % i, reuse=self.reuse_variables):
                 filter_dim = filter_dims[i]
                 filter_size = filter_dim[0]
                 out_channel = filter_dim[1]
-                layer_out = self.sandwich_bn_relu_conv_layer(layer_out, [filter_size, filter_size, input_channel, out_channel], stride)
+                layer_out = self.sandwich_bn_relu_conv_layer(layer_out, filter_size, out_channel, stride)
                 stride = 1    # Only shrink size for at most once.
 
         # Identity Branch
         identity_out = input_layer
         # Shrink size if needed.
         if block_input_size == block_output_size * 2:
-            identity_out = tf.nn.avg_pool(identity_out, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='VALID')
+            identity_out = tf.nn.avg_pool(identity_out, 
+                                          ksize=[1, 1, 2, 2], 
+                                          strides=[1, 1, 2, 2], 
+                                          padding='VALID',
+                                          data_format='NCHW')
         # Pad channels if needed.
         channel_padding_size = block_output_channel - block_input_channel 
         if channel_padding_size > 0:
             pades = channel_padding_size // 2
-            identity_out = tf.pad(identity_out, [[0, 0], [0, 0], [0, 0], [pades, pades]])
+            identity_out = tf.pad(identity_out, [[0, 0], [pades, pades], [0, 0], [0, 0]])
 
         # Merge Output
         # block_output = layer_out + identity_out
+
         bl = sum([self.filter_dim_list[i][1] for i in range(sec_num)]) + rpt_num + 1
         p_block_survival = 1 - (bl / self.total_res_blocks) * (1 - self.p_L)
         survival_rate = tf.constant(p_block_survival)
         survival_roll = tf.random_uniform(shape=[], minval=0.0, maxval=1.0)
         block_drop = tf.logical_and(tf.greater(survival_roll, survival_rate), 
                                        tf.constant(self.use_dropout))
+        
         block_output = tf.cond(block_drop, lambda: identity_out, lambda: layer_out + identity_out)
-
+        self.num_block_activated = tf.cond(block_drop, lambda: self.num_block_activated, lambda: self.num_block_activated + 1)
+        
+        # block_output = layer_out + identity_out
+        
         # Validate outputs
         # 1. Validate output dimensions
         # validate_tensor_dim(block_output, (FLAGS.Train_Batch_Size, block_output_size, block_output_size, block_output_channel))
-
+        print("\t\toutput shape: {2}".format(sec_num, rpt_num, block_output.get_shape().as_list()))
+        
         return block_output
 
 
@@ -200,7 +241,7 @@ class Resnet(object):
         # Validate inputs
         # 1. Validate input dimensions.
         # 2. Validate block_output_size = block_input_size // 2 OR block_output_size = block_input_size
-        # validate_tensor_dim(input_layer, (FLAGS.Train_Batch_Size, block_input_size, block_input_size, block_input_channel))
+        # self.validate_tensor_dim(input_layer, (FLAGS.Train_Batch_Size, block_input_channel, block_input_size, block_input_size))
 
         filter_dims = self.filter_dim_list[sec_num][0]
         repeat_times = self.filter_dim_list[sec_num][1]
@@ -211,57 +252,44 @@ class Resnet(object):
         block_out = input_layer
         for rp in range(repeat_times):
             with tf.variable_scope('rpt_%d' % rp, reuse=self.reuse_variables):
-                block_out = self.residual_block(block_out, sec_input_dim, sec_output_dim, filter_dims, sec_num, rp)
+                block_out = self.residual_block(block_out, 
+                                                sec_input_dim, sec_output_dim, 
+                                                filter_dims, sec_num, rp)
                 sec_input_dim = sec_output_dim
                 sec_output_dim = sec_output_dim
 
         # Validate outputs
         # 1. Validate output dimensions.
-        # validate_tensor_dim(block_out, (FLAGS.Train_Batch_Size, block_output_size, block_output_size, block_output_channel))
+        # self.validate_tensor_dim(block_out, (FLAGS.Train_Batch_Size, block_output_channel, block_output_size, block_output_size))
 
         return block_out
 
 
-    def conv1_section(self, input_layer, input_dim, output_dim, filter_dim):
-        block_input_size = input_dim[0]
-        block_input_channel = input_dim[1]
-        block_output_size = output_dim[0]
-        block_output_channel = output_dim[1]
-
+    def conv1_section(self, x, filter_size, out_channel, stride):
         # validate_tensor_dim(input_layer, (FLAGS.Train_Batch_Size, block_input_size, block_input_size, block_input_channel))
 
-        sec_out = self.sandwich_conv_bn_relu_layer(input_layer, 
-                      [filter_dim[0], filter_dim[0], block_input_channel, block_output_channel], 1)
-
+        sec_out = self.single_conv_layer(x,
+                                         filter_size=filter_size,
+                                         out_channel=out_channel,
+                                         stride=stride)
+        
+        # TODO: Add a pooling layer?
+        sec_out = tf.layers.max_pooling2d(sec_out, pool_size=2, strides=1, 
+                                          padding='SAME', data_format='channels_first')
+        
         # validate_tensor_dim(sec_out, (FLAGS.Train_Batch_Size, block_output_size, block_output_size, block_output_channel))
 
         return sec_out
 
 
-    def fc_section(self, input_layer, num_labels):
-        # Global Average Pooling
-        in_channel = input_layer.get_shape().as_list()[-1]
-        bn_layer = self.single_bn_layer(input_layer, in_channel)
+    def fc_section(self, x, num_labels):
+        in_channel = x.get_shape().as_list()[1]
+        bn_layer = self.single_bn_layer(x)
         relu_layer = self.single_relu_layer(bn_layer)
-        global_pool = tf.reduce_mean(relu_layer, [1, 2])
+        global_pool = tf.reduce_mean(relu_layer, [2, 3])
+        fc_out = self.single_fully_connect(global_pool, num_labels)
 
-        # Get wx
-        input_dim = global_pool.get_shape().as_list()[-1]
-        initializer = tf.uniform_unit_scaling_initializer(factor=1.0)
-        regularizer = tf.contrib.layers.l2_regularizer(scale=FLAGS.Weight_Decay)
-        shape = [input_dim, num_labels]
-        fc_w = tf.get_variable('fc_weights', shape=shape, initializer=initializer, regularizer=regularizer)
-
-        # Get bx
-        initializer = tf.zeros_initializer()
-        regularizer = tf.contrib.layers.l2_regularizer(scale=FLAGS.Weight_Decay)
-        shape = [num_labels]
-        fc_b = tf.get_variable('fc_bias', shape=shape, initializer=initializer, regularizer=regularizer)
-
-        # Fc layer
-        fc_h = tf.matmul(global_pool, fc_w) + fc_b    
-
-        return fc_h
+        return fc_out
 
 
     def forward(self, input_tensor_batch):   
@@ -270,22 +298,22 @@ class Resnet(object):
 
         # Section 1: Conv1
         input_dim = (64, 3)
-        output_dim = (64, 64)
+        output_dim = (64, 32)
         with tf.variable_scope('conv1', reuse=self.reuse_variables):
-            sec_out = self.conv1_section(sec_out, input_dim, output_dim, (1, 64))
-
+            sec_out = self.conv1_section(sec_out, 1, 32, 1)
+        
         # Section 2: Conv2_x
-        input_dim = (64, 64)
+        input_dim = (64, 32)
         output_dim = (64, 64)
         with tf.variable_scope('conv2', reuse=self.reuse_variables):
             sec_out = self.residual_section(sec_out, input_dim, output_dim, sec_num=0)
-
+            
         # Section 3: Conv3_x
         input_dim = (64, 64)
         output_dim = (32, 128)
         with tf.variable_scope('conv3', reuse=self.reuse_variables):
             sec_out = self.residual_section(sec_out, input_dim, output_dim, sec_num=1)
-
+            
         # Section 4: Conv4_x
         input_dim = (32, 128)
         output_dim = (16, 256)
@@ -297,11 +325,11 @@ class Resnet(object):
         output_dim = (8, 512)
         with tf.variable_scope('conv5', reuse=self.reuse_variables):
             sec_out = self.residual_section(sec_out, input_dim, output_dim, sec_num=3)
-
+        
         # Section 2: FC
         with tf.variable_scope('fc', reuse=self.reuse_variables):
             sec_out = self.fc_section(sec_out, 200)
-
+        
         return sec_out
 
 

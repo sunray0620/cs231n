@@ -8,8 +8,8 @@ from flags import *
 
 
 def main():
-    resnet_trainer = ResnetTrainer()
-    resnet_trainer.train()
+    # resnet_trainer = ResnetTrainer()
+    # resnet_trainer.train()
     
     # resnet_tester = ResnetTester()
     # resnet_tester.test()

@@ -13,7 +13,7 @@ class ResnetTester(object):
         
 
     def init_placeholders(self):
-        test_phshape = [FLAGS.Test_Batch_Size, FLAGS.IMG_SIZE, FLAGS.IMG_SIZE, FLAGS.IMG_CHANNEL]
+        test_phshape = [FLAGS.Test_Batch_Size, FLAGS.IMG_CHANNEL, FLAGS.IMG_SIZE, FLAGS.IMG_SIZE]
         self.test_image_placeholder = tf.placeholder(dtype=tf.float32, shape=test_phshape)
 
         
@@ -42,7 +42,7 @@ class ResnetTester(object):
         saver = tf.train.Saver(tf.global_variables())
         sess = tf.Session()
         print('Read weights from checkpoint...')
-        file_path = "{0}-{1}".format("ckpts/model_ckpt.dat", 20000)
+        file_path = "{0}-{1}".format("ckpts/model_ckpt.dat", 19999)
         saver.restore(sess, file_path)
         
         # Start Testing.
@@ -97,8 +97,9 @@ class ResnetTester(object):
         
         
         
-                
-        
+###### Main Function ######                
+resnet_tester = ResnetTester()
+resnet_tester.test()
         
         
         

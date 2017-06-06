@@ -1,66 +1,8 @@
 from scipy.misc import imread
-from flags import *
-import tensorflow as tf
 import numpy as np
 import os
 import cv2
 import time
-
-
-def softmax_loss(logits, labels):
-    labels = tf.cast(labels, tf.int64)
-    cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=labels)
-    cross_entropy_mean = tf.reduce_mean(cross_entropy)
-    return cross_entropy_mean
-
-
-def top_k_error(predictions, labels, k):
-    batch_size = predictions.get_shape().as_list()[0]
-    in_top1 = tf.to_float(tf.nn.in_top_k(predictions, labels, k=1))
-    num_correct = tf.reduce_sum(in_top1)
-    num_error = batch_size - num_correct
-    return 1.0 * num_error / batch_size
-
-
-def sample_batch(X, y, batch_size):
-    num_train, _, _, _ = X.shape
-    sampleIndice = np.random.choice(num_train, batch_size, replace=False)
-    X_batch = X[sampleIndice,:]
-    y_batch = y[sampleIndice]
-    return X_batch, y_batch
-
-
-def random_shuffle(X, y):
-    assert X.shape[0] == y.shape[0]
-    length = X.shape[0]
-    p = np.random.permutation(length)
-    return X[p], y[p]
-
-
-def get_batch(X, y, start_idx, end_idx):
-    X_batch = X[start_idx:end_idx]
-    y_batch = y[start_idx:end_idx]
-    batch_size = end_idx - start_idx
-    return X_batch, y_batch
-
-
-def save_sess(saver, sess, step):
-    print('Saving checkpoints')
-    saver.save(sess, FLAGS.CKPT_PATH, global_step=step)
-
-
-def get_sess(saver):
-    sess = tf.Session()
-    if FLAGS.USE_CKPT is True:
-        print('Restored from checkpoint...')
-        file_path = "{0}-{1}".format(FLAGS.CKPT_PATH, FLAGS.CUR_STEP)
-        saver.restore(sess, file_path)
-    else:
-        print('Initialize new Session...')
-        init = tf.global_variables_initializer()
-        sess.run(init)
-    
-    return sess
 
 
 def load_tiny_imagenet(path, dtype=np.float32, subtract_mean=True):
@@ -169,12 +111,17 @@ def load_tiny_imagenet(path, dtype=np.float32, subtract_mean=True):
         y_test = [wnid_to_label[img_file_to_wnid[img_file]]
                   for img_file in img_files]
         y_test = np.array(y_test)
-
+       
     mean_image = X_train.mean(axis=0)
     if subtract_mean:
         X_train -= mean_image[None]
         X_val -= mean_image[None]
         X_test -= mean_image[None]
+    
+    X_train = X_train.transpose((0, 2, 3, 1))
+    X_val = X_val.transpose((0, 2, 3, 1))
+    X_test = X_test.transpose((0, 2, 3, 1))
+    mean_image = mean_image.transpose((1, 2, 0))
     
     return {
       'X_train': X_train,
@@ -189,57 +136,4 @@ def load_tiny_imagenet(path, dtype=np.float32, subtract_mean=True):
       'label_to_wnid': label_to_wnid,
     }
 
-
-def load_val_test_tiny_imagenet(path, dtype=np.float32, mean_image=None):
-
-    # First load wnids
-    with open(os.path.join(path, 'wnids.txt'), 'r') as f:
-        wnids = [x.strip() for x in f]
-
-    # Map wnids to integer labels
-    wnid_to_label = {wnid: i for i, wnid in enumerate(wnids)}
-    label_to_wnid = {i: wnid for i, wnid in enumerate(wnids)}
-
-    # Next load validation data
-    with open(os.path.join(path, 'val', 'val_annotations.txt'), 'r') as f:
-        img_files = []
-        val_wnids = []
-        for line in f:
-            img_file, wnid = line.split('\t')[:2]
-            img_files.append(img_file)
-            val_wnids.append(wnid)
-        
-        y_val_label = val_wnids
-        X_val = np.zeros((len(img_files), 3, 64, 64), dtype=dtype)
-        for i, img_file in enumerate(img_files):
-            img_file = os.path.join(path, 'val', 'images', img_file)
-            img = imread(img_file)
-            if img.ndim == 2:
-                img.shape = (64, 64, 1)
-            X_val[i] = img.transpose((2, 0, 1))
-
-    # Next load test images
-    # Students won't have test labels, so we need to iterate over files in the
-    # images directory.
-    test_image_name = 'test_{0}.JPEG'
-    img_files = [test_image_name.format(i) for i in range(10000)]
-    X_test = np.zeros((len(img_files), 3, 64, 64), dtype=dtype)
-    for i, img_file in enumerate(img_files):
-        img_file = os.path.join(path, 'test', 'images', img_file)
-        img = imread(img_file)
-        if img.ndim == 2:
-            img.shape = (64, 64, 1)
-        X_test[i] = img.transpose((2, 0, 1))
-
-    X_val -= mean_image[None]
-    X_test -= mean_image[None]
-    
-    return {
-      'X_val': X_val,
-      'y_val_label': y_val_label,
-      'X_test': X_test,
-      'wnid_to_label': wnid_to_label,
-      'label_to_wnid': label_to_wnid,
-    }
-    
     
