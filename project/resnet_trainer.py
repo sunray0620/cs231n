@@ -99,16 +99,15 @@ class ResnetTrainer(object):
     '''
     def train(self):
         # Read training and validation data.
-        data = utils.load_tiny_imagenet('./data/tiny-imagenet-200')
-        X_train = data['X_train']
-        y_train = data['y_train']
-        X_val = data['X_val']
-        y_val = data['y_val']
+        data = utils.load_tiny_imagenet('./data/tiny-imagenet-200', dtype=np.uint8, subtract_mean=False)
+        assert data['X_train'].dtype == np.uint8
+        assert data['X_val'].dtype == np.uint8
+        assert data['X_test'].dtype == np.uint8
         
-        print(X_train.shape)
-        print(y_train.shape)
-        print(X_val.shape)
-        print(y_val.shape)
+        print(data['X_train'].shape)
+        print(data['y_train'].shape)
+        print(data['X_val'].shape)
+        print(data['y_val'].shape)
         print(data['X_test'].shape)
         print(len(data['class_names']))
         print(data['mean_image'].shape)
@@ -143,20 +142,25 @@ class ResnetTrainer(object):
         print('Start training...')
         print('----------------------------')
         lr = FLAGS.Learning_Rate
-        for epoch in range(0, 20):
+        for epoch in range(0, 10):
             batch_count = 1000
             batch_size = 100
             
             # Shuffle.
             print("Shuffling training data.")
             X_train, y_train = utils.random_shuffle(data['X_train'], data['y_train'])
-            
             print("Randomly aug images")
             X_train = da.random_aug_images(X_train)
+            X_train = utils.subtract_mean(X_train, data['mean_image'])
+            assert X_train.dtype == np.float64
+            
+            X_val = utils.subtract_mean(data['X_val'], data['mean_image'])
+            y_val = data['y_val']
+            assert X_val.dtype == np.float64
             
             # Update learning rate.
             # lr = lr / 2
-            
+
             for iter_num in range(batch_count):
                 step = epoch * batch_count + iter_num
                 print('---- step: {0} (epoch {1}, iteration {2}) -----'.format(step, epoch, iter_num))
@@ -266,12 +270,12 @@ class ResnetTrainer(object):
         
         print("Full Validation took {0:.2f} secs".format(end_time-start_time))
         print("Full Validation error: {0:.4f}".format(num_error/num_input))
-        
+        '''
         full_val_error = tf.placeholder(tf.float32, [])
         summary_op = tf.summary.scalar("full_val_error", full_val_error)
         full_val_summary_value = sess.run(summary_op, feed_dict={full_val_error: num_error/num_input})
         sw.add_summary(full_val_summary_value, step)
-        
+        '''
         
         
 ###### Main Function ######

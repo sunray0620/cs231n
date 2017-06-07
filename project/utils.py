@@ -63,6 +63,13 @@ def get_sess(saver):
     return sess
 
 
+def subtract_mean(images, mean_image):
+    assert(images.dtype, np.uint8)
+    images_sm = images - mean_image
+    assert(images_sm.dtype, np.float64)
+    return images_sm
+    
+
 def load_tiny_imagenet(path, dtype=np.float32, subtract_mean=True):
     """
     Load TinyImageNet. Each of TinyImageNet-100-A, TinyImageNet-100-B, and

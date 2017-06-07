@@ -5,18 +5,19 @@ Run checks via
 """
 from __future__ import print_function, division
 
-#import sys
-#import os
-#sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-
 import imgaug as ia
 from imgaug import augmenters as iaa
 from imgaug import parameters as iap
 import numpy as np
 from scipy import ndimage, misc
 from skimage import data
+import argparse
 
 def main():
+    parser = argparse.ArgumentParser(description="Check augmenters visually.")
+    parser.add_argument('--only', default=None, help="If this is set, then only the results of an augmenter with this name will be shown.", required=False)
+    args = parser.parse_args()
+
     images = [
         misc.imresize(ndimage.imread("../quokka.jpg")[0:643, 0:643], (128, 128)),
         misc.imresize(data.astronaut(), (128, 128))
@@ -24,6 +25,11 @@ def main():
 
     augmenters = [
         iaa.Noop(name="Noop"),
+        iaa.OneOf(children=[
+            iaa.CoarseDropout(p=0.5, size_percent=0.05),
+            iaa.AdditiveGaussianNoise(scale=0.1*255),
+            iaa.Crop(percent=0.1)
+        ], name="OneOf"),
         iaa.Crop(px=(0, 8), name="Crop-px"),
         iaa.Crop(percent=(0, 0.1), name="Crop-percent"),
         iaa.Fliplr(0.5, name="Fliplr"),
@@ -31,13 +37,16 @@ def main():
         iaa.Superpixels(p_replace=0.75, n_segments=50, name="Superpixels"),
         iaa.Grayscale(0.5, name="Grayscale0.5"),
         iaa.Grayscale(1.0, name="Grayscale1.0"),
+        iaa.AverageBlur(k=(3, 11), name="AverageBlur"),
         iaa.GaussianBlur((0, 3.0), name="GaussianBlur"),
+        iaa.MedianBlur(k=(3, 11), name="MedianBlur"),
         iaa.Sharpen(alpha=(0.1, 1.0), lightness=(0, 2.0), name="Sharpen"),
         iaa.Emboss(alpha=(0.1, 1.0), strength=(0, 2.0), name="Emboss"),
         iaa.EdgeDetect(alpha=(0.1, 1.0), name="EdgeDetect"),
         iaa.DirectedEdgeDetect(alpha=(0.1, 1.0), direction=(0, 1.0), name="DirectedEdgeDetect"),
         iaa.AdditiveGaussianNoise(loc=0, scale=(0.0, 0.1*255), name="AdditiveGaussianNoise"),
         iaa.Dropout((0.0, 0.1), name="Dropout"),
+        iaa.CoarseDropout(p=0.05, size_percent=(0.05, 0.5), name="CoarseDropout"),
         iaa.Invert(p=0.5, name="Invert"),
         iaa.Invert(p=0.5, per_channel=True, name="InvertPerChannel"),
         iaa.Add((-50, 50), name="Add"),
@@ -57,21 +66,18 @@ def main():
             mode=ia.ALL,
             name="Affine"
         ),
+        iaa.PiecewiseAffine(scale=0.03, nb_rows=(2, 6), nb_cols=(2, 6), name="PiecewiseAffine"),
         iaa.ElasticTransformation(alpha=(0.5, 8.0), sigma=1.0, name="ElasticTransformation")
     ]
 
-    #for i, aug in enumerate(augmenters):
-        #print(i)
-        #aug.deepcopy()
-        #import copy
-        #copy.deepcopy(aug)
     augmenters.append(iaa.Sequential([iaa.Sometimes(0.2, aug.copy()) for aug in augmenters], name="Sequential"))
     augmenters.append(iaa.Sometimes(0.5, [aug.copy() for aug in augmenters], name="Sometimes"))
 
     for augmenter in augmenters:
-        print("Augmenter: %s" % (augmenter.name,))
-        grid = augmenter.draw_grid(images, rows=1, cols=16)
-        misc.imshow(grid)
+        if args.only is None or augmenter.name == args.only:
+            print("Augmenter: %s" % (augmenter.name,))
+            grid = augmenter.draw_grid(images, rows=1, cols=16)
+            misc.imshow(grid)
 
 if __name__ == "__main__":
     main()
