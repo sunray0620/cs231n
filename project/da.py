@@ -4,11 +4,10 @@ import utils
 import sys
 from scipy.misc import imread
 from scipy.misc import imsave
-import numpy as np
 
-sys.path.append("./iaa")
 import imgaug as ia
 from imgaug import augmenters as iaa
+import numpy as np
 
 Prob_05 = lambda aug: iaa.Sometimes(0.05, aug)
 Prob_10 = lambda aug: iaa.Sometimes(0.1, aug)
@@ -77,7 +76,7 @@ def random_aug_images(images):
         random_order=True
     )
     '''
-    
+
     seq = iaa.Sequential(
         [
             # apply the following augmenters to most images
@@ -128,7 +127,7 @@ def random_aug_images(images):
 
 
 def save_images_for_debug(images, images_aug):
-    for i in range(100):
+    for i in range(20):
         original_image = images[i]
         path = "./images/image_{0}.JPEG".format(i)    
         imsave(path, original_image)
@@ -137,7 +136,77 @@ def save_images_for_debug(images, images_aug):
         aug_path = "./images/image_{0}_aug.JPEG".format(i)
         imsave(aug_path, aug_image)
 
+        
+def da_demo(image):   
+    print("Image shape {0}".format(image.shape))
+    image = image.transpose((1, 2, 0))
+    print("Image shape {0}".format(image.shape))
+    
+    imsave("./images/image.JPEG", image)
 
+    #################################
+    iaop = iaa.Fliplr(1.0)
+    image_aug = iaop.augment_image(image)
+    imsave("./images/image_aug_1.JPEG", image_aug)
+    
+    #################################
+    iaop = iaa.Flipud(1.0)
+    image_aug = iaop.augment_image(image)
+    imsave("./images/image_aug_2.JPEG", image_aug)
+    
+    #################################
+    iaop = iaa.Crop(percent=(0.15, 0.15))
+    image_aug = iaop.augment_image(image)
+    imsave("./images/image_aug_3.JPEG", image_aug)
         
+    #################################
+    iaop = iaa.Affine(
+                scale={"x": (1.2, 1.2), "y": (1.2, 1.2)}, # scale images to 80-120% of their size, individually per axis
+                mode=ia.ALL # use any of scikit-image's warping modes (see 2nd image from the top for examples)
+            )
+    image_aug = iaop.augment_image(image)
+    imsave("./images/image_aug_4.JPEG", image_aug)
+    
+    #################################
+    iaop = iaa.Affine(
+                translate_percent={"x": (0.2, 0.2), "y": (0.2, 0.2)},
+                mode=ia.ALL # use any of scikit-image's warping modes (see 2nd image from the top for examples)
+            )
+    image_aug = iaop.augment_image(image)
+    imsave("./images/image_aug_5.JPEG", image_aug)
+    
+    #################################
+    iaop = iaa.Affine(
+                rotate=(45, 45),
+                mode=ia.ALL # use any of scikit-image's warping modes (see 2nd image from the top for examples)
+            )
+    image_aug = iaop.augment_image(image)
+    imsave("./images/image_aug_6.JPEG", image_aug)
+    
+    #################################
+    iaop = iaa.Affine(
+                shear=(16, 16),
+                mode=ia.ALL # use any of scikit-image's warping modes (see 2nd image from the top for examples)
+            )
+    image_aug = iaop.augment_image(image)
+    imsave("./images/image_aug_7.JPEG", image_aug)
+    
+    #################################
+    iaop = iaa.Multiply((1.5, 1.5), per_channel=0)
+    image_aug = iaop.augment_image(image)
+    imsave("./images/image_aug_8.JPEG", image_aug)
         
-        
+    #################################
+    iaop = iaa.ContrastNormalization((1.5, 1.5), per_channel=0)
+    image_aug = iaop.augment_image(image)
+    imsave("./images/image_aug_9.JPEG", image_aug)
+    
+    #################################
+    iaop = iaa.AdditiveGaussianNoise(loc=0, scale=(0.0, 0.1*255), per_channel=0.5)
+    image_aug = iaop.augment_image(image)
+    imsave("./images/image_aug_10.JPEG", image_aug)
+    
+    #################################
+    iaop = iaa.Dropout((0, 0.1), per_channel=0.5) # randomly remove up to 10% of the pixels
+    image_aug = iaop.augment_image(image)
+    imsave("./images/image_aug_11.JPEG", image_aug)

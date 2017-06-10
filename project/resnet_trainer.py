@@ -142,13 +142,14 @@ class ResnetTrainer(object):
         print('Start training...')
         print('----------------------------')
         lr = FLAGS.Learning_Rate
-        for epoch in range(0, 10):
+        for epoch in range(40, 50):
             batch_count = 1000
             batch_size = 100
             
             # Shuffle.
             print("Shuffling training data.")
             X_train, y_train = utils.random_shuffle(data['X_train'], data['y_train'])
+
             print("Randomly aug images")
             X_train = da.random_aug_images(X_train)
             X_train = utils.subtract_mean(X_train, data['mean_image'])

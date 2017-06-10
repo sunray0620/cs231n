@@ -64,9 +64,9 @@ def get_sess(saver):
 
 
 def subtract_mean(images, mean_image):
-    assert(images.dtype, np.uint8)
-    images_sm = images - mean_image
-    assert(images_sm.dtype, np.float64)
+    assert images.dtype == np.uint8
+    images_sm = images - mean_image[None]
+    assert images_sm.dtype == np.float64
     return images_sm
     
 
@@ -237,9 +237,10 @@ def load_val_test_tiny_imagenet(path, dtype=np.float32, mean_image=None):
         if img.ndim == 2:
             img.shape = (64, 64, 1)
         X_test[i] = img.transpose((2, 0, 1))
-
-    X_val -= mean_image[None]
-    X_test -= mean_image[None]
+    
+    if mean_image is not None:
+        X_val -= mean_image[None]
+        X_test -= mean_image[None]
     
     return {
       'X_val': X_val,
