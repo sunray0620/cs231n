@@ -127,7 +127,7 @@ def random_aug_images(images):
 
 
 def save_images_for_debug(images, images_aug):
-    for i in range(20):
+    for i in range(200):
         original_image = images[i]
         path = "./images/image_{0}.JPEG".format(i)    
         imsave(path, original_image)

@@ -34,11 +34,11 @@ class ResnetTester(object):
         
         data = utils.load_val_test_tiny_imagenet('./data/tiny-imagenet-200', dtype=np.float32, mean_image=data_base['mean_image'])
         X_val = data['X_val']
-        y_val_label = data['y_val_label']
+        y_val = data['y_val']
         X_test = data['X_test']
         
         print(X_val.shape)
-        print(len(y_val_label))
+        print(len(y_val))
         print(X_test.shape)
         
         print("===")
@@ -52,7 +52,7 @@ class ResnetTester(object):
         saver = tf.train.Saver(tf.global_variables())
         sess = tf.Session()
         print('Read weights from checkpoint...')
-        file_path = "{0}-{1}".format("ckpts/model_ckpt.dat", 70999)
+        file_path = "{0}-{1}".format("ckpts/model_ckpt.dat", 69999)
         saver.restore(sess, file_path)
         
         # Start Testing.
@@ -61,7 +61,7 @@ class ResnetTester(object):
         
         start_time = time.time()
         
-        input_data = X_test
+        input_data = X_val
         
         num_input = input_data.shape[0]
         batch_size = 200
@@ -84,36 +84,47 @@ class ResnetTester(object):
         end_time = time.time()
         
         actual_output = [label_to_wnid[pred] for pred in predictions]
-        words_output = [class_names[pred] for pred in predictions]
+        words_actual_output = [class_names[pred] for pred in predictions]
         
+        '''
         retf = open('sunlei_result.txt', 'w')
         test_image_name = 'test_{0}.JPEG'
         img_files = [test_image_name.format(i) for i in range(10000)]
+        
         for i in range(10000):
             # line = "{0}\t{1}\t{2}".format(img_files[i], actual_output[i], words_output[i])
             line = "{0}\t{1}".format(img_files[i], actual_output[i])
             print(line, file=retf)
-        
         '''
-        expected_output = data['y_val']
-        num_correct = sum([actual_output[i] == data['label_to_wnid'][expected_output[i]] for i in range(num_input)])
+        
+        expected_output_int = y_val
+        expected_output = [label_to_wnid[eoi] for eoi in expected_output_int]
+        words_expected_output = [class_names[eoi] for eoi in expected_output_int]
+        
+        num_correct = sum([actual_output[i] == expected_output[i] for i in range(num_input)])
         print(num_correct)    
         
-        for i in range(20):
-            print("{0}\{1}".format(actual_output[i], data['label_to_wnid'][expected_output[i]]))
+        retf = open('sunlei_result_error.txt', 'w')
+        test_image_name = 'test_{0}.JPEG'
+        img_files = [test_image_name.format(i) for i in range(10000)]
+        for i in range(10000):
+            if actual_output[i] == expected_output[i]:
+                continue
+            print("{0}\t{1}\t{2}\t{3}\t{4}".format(img_files[i], actual_output[i], words_actual_output[i],
+                                                  expected_output[i], words_expected_output[i]), file=retf)
         
         print("Prediction took {0:.2f} secs".format(end_time-start_time))
         print("{0:.4f}".format(num_correct/num_input))
-        '''
+
 
     def image_aug_test(self):
         data = utils.load_val_test_tiny_imagenet('./data/tiny-imagenet-200', dtype=np.uint8, mean_image=None)
         X_val = data['X_val']
-        y_val_label = data['y_val_label']
+        y_val = data['y_val']
         X_test = data['X_test']
         
         print(X_val.shape)
-        print(len(y_val_label))
+        print(len(y_val))
         print(X_test.shape)
         da.da_demo(X_test[423])
 

@@ -215,8 +215,8 @@ def load_val_test_tiny_imagenet(path, dtype=np.float32, mean_image=None):
             img_file, wnid = line.split('\t')[:2]
             img_files.append(img_file)
             val_wnids.append(wnid)
+        y_val = np.array([wnid_to_label[wnid] for wnid in val_wnids])
         
-        y_val_label = val_wnids
         X_val = np.zeros((len(img_files), 3, 64, 64), dtype=dtype)
         for i, img_file in enumerate(img_files):
             img_file = os.path.join(path, 'val', 'images', img_file)
@@ -244,7 +244,7 @@ def load_val_test_tiny_imagenet(path, dtype=np.float32, mean_image=None):
     
     return {
       'X_val': X_val,
-      'y_val_label': y_val_label,
+      'y_val': y_val,
       'X_test': X_test,
       'wnid_to_label': wnid_to_label,
       'label_to_wnid': label_to_wnid,
