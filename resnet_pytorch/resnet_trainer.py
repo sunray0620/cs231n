@@ -12,7 +12,7 @@ def main():
     trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=False, transform=transform)
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=4, shuffle=True, num_workers=2)
 
-    resnet = ResNet(64, 256)
+    resnet = ResNet()
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(resnet.parameters(), lr=0.001, momentum=0.9)
 
