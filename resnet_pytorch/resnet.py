@@ -2,9 +2,9 @@ from torch.autograd import Variable
 import torch
 
 
-class SandwichNet(torch.nn.Module):
+class SandwichLayer(torch.nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
-        super(SandwichNet, self).__init__()
+        super(SandwichLayer, self).__init__()
         self.conv = torch.nn.Conv2d(in_channels=in_channels, out_channels=out_channels,
                                     kernel_size=kernel_size, stride=stride,
                                     padding=padding, bias=False)
@@ -18,54 +18,79 @@ class SandwichNet(torch.nn.Module):
         return out
 
 
-class BasicBlock(torch.nn.Module):
+class ResNetBlock(torch.nn.Module):
     def __init__(self, in_size, in_channels, out_size, out_channels):
-        super(BasicBlock, self).__init__()
+        super(ResNetBlock, self).__init__()
+        self.in_size = in_size
+        self.in_channels = in_channels
+        self.out_size = out_size
+        self.out_channels = out_channels
 
         stride = 1
         if out_size == in_size // 2:
             stride = 2
 
-        self.sandwich1 = SandwichNet(in_channels=in_channels, out_channels=out_channels,
-                                     kernel_size=3, stride=stride, padding=1)
-        self.sandwich2 = SandwichNet(in_channels=in_channels, out_channels=out_channels,
-                                     kernel_size=3, stride=1, padding=1)
+        self.sandwich1 = SandwichLayer(in_channels=in_channels, out_channels=out_channels,
+                                       kernel_size=3, stride=stride, padding=1)
+        self.sandwich2 = SandwichLayer(in_channels=out_channels, out_channels=out_channels,
+                                       kernel_size=3, stride=1, padding=1)
+        self.shrink_size = torch.nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
+        self.pad_zeros = torch.nn.ZeroPad2d((self.in_channels // 2, self.in_channels // 2, 0, 0))
 
     def forward(self, x):
+        res_out = self.sandwich1(x)
+        res_out = self.sandwich2(res_out)
         residual = x
-        out = self.sandwich1(x)
-        out = self.sandwich2(out)
-        out += residual
+        # print("resnet output size is", res_out.size())
+        # print("residual size is", residual.size())
+        if self.out_channels == self.in_channels * 2:
+            residual = torch.transpose(residual, 1, 3)
+            residual = self.pad_zeros(residual)
+            residual = torch.transpose(residual, 1, 3)
+        if self.out_size == self.in_size // 2:
+            residual = self.shrink_size(residual)
+
+        out = residual + res_out
+        return out
+
+
+class ResNetStage(torch.nn.Module):
+    def __init__(self, in_size, in_channels, out_size, out_channels, repeat_times):
+        super(ResNetStage, self).__init__()
+
+        layers = []
+        for i in range(repeat_times):
+            if i == 0:
+                layers.append(ResNetBlock(in_size, in_channels, out_size, out_channels))
+            else:
+                layers.append(ResNetBlock(out_size, out_channels, out_size, out_channels))
+
+        self.stage_model = torch.nn.Sequential(*layers)
+
+    def forward(self, x):
+        out = self.stage_model(x)
         return out
 
 
 class ResNet(torch.nn.Module):
     def __init__(self):
         super(ResNet, self).__init__()
-        self.conv1 = SandwichNet(in_channels=3, out_channels=16, kernel_size=3, stride=1, padding=1)
-        # self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.resblock1 = BasicBlock(in_size=32, in_channels=16, out_size=32, out_channels=64)
-        self.resblock2 = BasicBlock(in_size=32, in_channels=64, out_size=32, out_channels=128)
-        self.resblock3 = BasicBlock(in_size=32, in_channels=128, out_size=16, out_channels=256)
-        self.resblock4 = BasicBlock(in_size=16, in_channels=256, out_size=8, out_channels=512)
+        self.conv1 = SandwichLayer(in_channels=3, out_channels=32, kernel_size=3, stride=1, padding=1)
+        self.conv2x = ResNetStage(in_size=32, in_channels=32, out_size=32, out_channels=64, repeat_times=2)
+        self.conv3x = ResNetStage(in_size=32, in_channels=64, out_size=32, out_channels=128, repeat_times=2)
+        self.conv4x = ResNetStage(in_size=32, in_channels=128, out_size=16, out_channels=256, repeat_times=2)
+        self.conv5x = ResNetStage(in_size=16, in_channels=256, out_size=8, out_channels=512, repeat_times=2)
+        self.avgpool = torch.nn.AvgPool2d(8)
+        self.fc = torch.nn.Linear(512, 10)
 
     def forward(self, x):
-        print(x.size())     # x ~ [mini_batch, 3, 32, 32]
-
-        # Block conv1
         x = self.conv1(x)
-        print(x.size())     # x ~ [mini_batch, 16, 32, 32]
-
-        # Layer conv1
-        for i in range(2):
-            self.resblock1()
+        x = self.conv2x(x)
+        x = self.conv3x(x)
+        x = self.conv4x(x)
+        x = self.conv5x(x)
+        x = self.avgpool(x)
+        x = torch.squeeze(x)
+        x = self.fc(x)
 
         return x
-
-
-filter_dim_list = [
-                  [((3, 64), (3, 64)), 3],
-                  [((3, 128), (3, 128)), 4],
-                  [((3, 256), (3, 256)), 6],
-                  [((3, 512), (3, 512)), 3]]
-

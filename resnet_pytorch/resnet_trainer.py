@@ -10,7 +10,7 @@ from resnet import ResNet
 def main():
     transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
     trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=False, transform=transform)
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=4, shuffle=True, num_workers=2)
+    trainloader = torch.utils.data.DataLoader(trainset, batch_size=128, shuffle=True, num_workers=2)
 
     resnet = ResNet()
     criterion = torch.nn.CrossEntropyLoss()
@@ -30,7 +30,9 @@ def main():
 
             # forward + backward + optimize
             outputs = resnet(inputs)
+
             loss = criterion(outputs, labels)
+            print(loss)
             loss.backward()
             optimizer.step()
 
